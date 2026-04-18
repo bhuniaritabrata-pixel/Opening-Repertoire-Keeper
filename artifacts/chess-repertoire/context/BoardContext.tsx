@@ -79,7 +79,6 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
 
     if (selectedSquare && legalMoves.includes(sq)) {
       // Check if promotion
-      const [fromRow, fromCol] = [selectedSquare.charCodeAt(1) - "1".charCodeAt(0), selectedSquare.charCodeAt(0) - "a".charCodeAt(0)];
       const isWhitePawn = fen.split(" ")[1] === "w";
       const toRank = sq.charCodeAt(1) - "1".charCodeAt(0);
 

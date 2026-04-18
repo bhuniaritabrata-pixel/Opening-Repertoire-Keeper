@@ -1,7 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { MoveNode, Opening, STARTING_FEN, generateId } from "@/types/chess";
-import { applyMove } from "@/utils/chess";
 
 const STORAGE_KEY = "@chess_repertoire";
 
