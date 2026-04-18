@@ -1,8 +1,8 @@
-# Workspace
+# Chess Repertoire App
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+A mobile chess opening repertoire app built with Expo/React Native. Record, review and analyse chess openings with full move tree support.
 
 ## Stack
 
@@ -10,18 +10,45 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **API framework**: Express 5 (api-server artifact)
+- **Database**: PostgreSQL + Drizzle ORM (available but not used in chess app)
+- **Mobile**: Expo SDK 54, React Native 0.81
+- **State**: React Context + AsyncStorage (no backend needed)
+- **Routing**: Expo Router (file-based)
+
+## Artifacts
+
+- **chess-repertoire** (`/`) — Main mobile app for chess opening repertoire
+- **api-server** (`/api`) — Shared Express backend (not currently used by chess app)
+- **mockup-sandbox** (`/__mockup`) — Design tool
+
+## Chess App Features
+
+- Opening repertoire list with search, add, delete
+- Interactive chess board with Neo-style pieces (vibrant 2D pieces mimicking chess.com)
+- Board color themes: Classic, Green, Blue Ocean, Purple, Red, Midnight, Coral + Custom color picker
+- Move recording via click/tap on board
+- PGN import
+- Move tree display (variation branching like ChessBase)
+- Move navigation: prev, next, start, end, flip board
+- Move annotations: !! ★ ✓ !? ? ?? (brilliant, great, good, best, inaccuracy, mistake, blunder)
+- Engine analysis panel (Stockfish-style evaluation with material-based eval)
+- Real-time eval bar
+- Dark/Light mode support
+
+## Key Files
+
+- `artifacts/chess-repertoire/types/chess.ts` — All chess type definitions
+- `artifacts/chess-repertoire/utils/chess.ts` — Chess logic (FEN parsing, move generation)
+- `artifacts/chess-repertoire/context/RepertoireContext.tsx` — Opening storage state
+- `artifacts/chess-repertoire/context/BoardContext.tsx` — Board game state
+- `artifacts/chess-repertoire/components/ChessBoard.tsx` — Interactive board
+- `artifacts/chess-repertoire/components/ChessPiece.tsx` — Piece rendering
+- `artifacts/chess-repertoire/components/MoveTree.tsx` — Move tree display
+- `artifacts/chess-repertoire/app/(tabs)/index.tsx` — Repertoire list screen
+- `artifacts/chess-repertoire/app/board/[id].tsx` — Board/analysis screen
 
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
-
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+- `pnpm --filter @workspace/chess-repertoire run dev` — run Expo app

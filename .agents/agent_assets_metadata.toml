@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "N55z8Ks_1Stc2iscMT4aT"
+uri = "file://artifacts/chess-repertoire/assets/images/icon.png"
+type = "image"
+title = "chess_app_icon"
