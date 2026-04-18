@@ -48,7 +48,27 @@ A mobile chess opening repertoire app built with Expo/React Native. Record, revi
 - `artifacts/chess-repertoire/app/(tabs)/index.tsx` — Repertoire list screen
 - `artifacts/chess-repertoire/app/board/[id].tsx` — Board/analysis screen
 
+## Expo Go Compatibility
+
+The chess app is fully compatible with **Expo Go** (no custom native modules required). Packages that require a development build have been removed:
+- ~~`react-native-keyboard-controller`~~ → replaced with React Native core `KeyboardAvoidingView`
+- ~~`expo-glass-effect`~~ → removed (iOS liquid glass, not in Expo Go)
+- ~~`expo-symbols`~~ → removed (iOS SF Symbols, not in Expo Go)
+- ~~`@tanstack/react-query`~~ → removed (not needed, chess app is fully local)
+- ~~`@workspace/api-client-react`~~ → removed (workspace-only, chess app needs no backend)
+
+### Scanning in Expo Go
+The Metro bundler serves:  
+`exp://f3921da9-181e-4d58-aa9d-2342a4d1a5b1-00-hon9bxdo47js.expo.worf.replit.dev`
+
+### Running locally (tunnel mode)
+```bash
+cd artifacts/chess-repertoire
+npx expo start --tunnel
+```
+
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm --filter @workspace/chess-repertoire run dev` — run Expo app
+- `pnpm --filter @workspace/chess-repertoire run dev` — run Expo app (Replit workflow)
+- `pnpm --filter @workspace/chess-repertoire run start` — run with tunnel (for Expo Go outside Replit)
