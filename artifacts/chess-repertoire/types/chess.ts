@@ -19,19 +19,23 @@ export interface ChessMove {
 }
 
 export type MoveAnnotation =
-  | "brilliant" // !!
-  | "great"     // !
-  | "good"      // ✓
-  | "best"      // ★
-  | "inaccuracy"// !?
-  | "mistake"   // ?
-  | "blunder";  // ??
+  | "brilliant"    // !!
+  | "great"        // !
+  | "good"         // ✓
+  | "best"         // ★
+  | "second_best"  // ✦
+  | "book"         // book icon
+  | "inaccuracy"   // !?
+  | "mistake"      // ?
+  | "blunder";     // ??
 
 export const ANNOTATION_SYMBOLS: Record<MoveAnnotation, string> = {
   brilliant: "!!",
   great: "!",
   good: "✓",
   best: "★",
+  second_best: "✦",
+  book: "📖",
   inaccuracy: "!?",
   mistake: "?",
   blunder: "??",
@@ -42,6 +46,8 @@ export const ANNOTATION_COLORS: Record<MoveAnnotation, string> = {
   great: "#4caf50",
   good: "#8bc34a",
   best: "#2196f3",
+  second_best: "#7c3aed",
+  book: "#7c4a03",
   inaccuracy: "#ff9800",
   mistake: "#ff5722",
   blunder: "#f44336",

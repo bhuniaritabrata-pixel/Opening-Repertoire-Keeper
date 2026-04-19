@@ -78,40 +78,40 @@ export default function RepertoireListScreen() {
     const date = new Date(item.updatedAt).toLocaleDateString();
 
     return (
-      <TouchableOpacity
-        style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-        onPress={() => handleOpenOpening(item)}
-        activeOpacity={0.75}
-      >
-        <View style={styles.cardLeft}>
-          <View style={[styles.colorDot, { backgroundColor: item.color === "white" ? "#f0f0f0" : item.color === "black" ? "#2d2d2d" : "#888" }]}>
-            <Text style={styles.colorDotText}>{colorInfo.icon}</Text>
-          </View>
-          <View style={styles.cardInfo}>
-            <Text style={[styles.cardName, { color: colors.foreground }]} numberOfLines={1}>
-              {item.name}
-            </Text>
-            {item.description ? (
-              <Text style={[styles.cardDesc, { color: colors.mutedForeground }]} numberOfLines={1}>
-                {item.description}
+      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <TouchableOpacity
+          style={styles.cardTouchable}
+          onPress={() => handleOpenOpening(item)}
+          activeOpacity={0.75}
+        >
+          <View style={styles.cardLeft}>
+            <View style={[styles.colorDot, { backgroundColor: item.color === "white" ? "#f0f0f0" : item.color === "black" ? "#2d2d2d" : "#888" }]}>
+              <Text style={styles.colorDotText}>{colorInfo.icon}</Text>
+            </View>
+            <View style={styles.cardInfo}>
+              <Text style={[styles.cardName, { color: colors.foreground }]} numberOfLines={1}>
+                {item.name}
               </Text>
-            ) : null}
-            <Text style={[styles.cardMeta, { color: colors.mutedForeground }]}>
-              {moveCount} move{moveCount !== 1 ? "s" : ""} · {date}
-            </Text>
+              {item.description ? (
+                <Text style={[styles.cardDesc, { color: colors.mutedForeground }]} numberOfLines={1}>
+                  {item.description}
+                </Text>
+              ) : null}
+              <Text style={[styles.cardMeta, { color: colors.mutedForeground }]}>
+                {moveCount} move{moveCount !== 1 ? "s" : ""} · {date}
+              </Text>
+            </View>
           </View>
-        </View>
-        <View style={styles.cardActions}>
-          <TouchableOpacity
-            onPress={() => handleDelete(item.id, item.name)}
-            style={styles.deleteBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Feather name="trash-2" size={16} color={colors.destructive} />
-          </TouchableOpacity>
           <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => handleDelete(item.id, item.name)}
+          style={styles.deleteBtn}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Feather name="trash-2" size={16} color={colors.destructive} />
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -289,8 +289,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 14,
     borderWidth: 1,
-    padding: 14,
     justifyContent: "space-between",
+  },
+  cardTouchable: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 14,
   },
   cardLeft: {
     flexDirection: "row",
@@ -330,7 +336,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   deleteBtn: {
-    padding: 4,
+    padding: 14,
+    paddingLeft: 0,
   },
   empty: {
     flex: 1,

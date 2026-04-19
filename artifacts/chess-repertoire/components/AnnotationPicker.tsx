@@ -1,9 +1,13 @@
+import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, MoveAnnotation } from "@/types/chess";
 import { useColors } from "@/hooks/useColors";
 
-const ANNOTATIONS: MoveAnnotation[] = ["brilliant", "great", "good", "best", "inaccuracy", "mistake", "blunder"];
+const ANNOTATIONS: MoveAnnotation[] = [
+  "brilliant", "great", "good", "best", "second_best", "book",
+  "inaccuracy", "mistake", "blunder",
+];
 
 interface AnnotationPickerProps {
   currentAnnotation?: MoveAnnotation;
@@ -29,9 +33,17 @@ export default function AnnotationPicker({ currentAnnotation, onSelect }: Annota
               ]}
               onPress={() => onSelect(isSelected ? undefined : ann)}
             >
-              <Text style={[styles.symbol, { color: isSelected ? "#fff" : color }]}>
-                {ANNOTATION_SYMBOLS[ann]}
-              </Text>
+              {ann === "book" ? (
+                <Feather
+                  name="book"
+                  size={15}
+                  color={isSelected ? "#fff" : color}
+                />
+              ) : (
+                <Text style={[styles.symbol, { color: isSelected ? "#fff" : color }]}>
+                  {ANNOTATION_SYMBOLS[ann]}
+                </Text>
+              )}
             </TouchableOpacity>
           );
         })}
