@@ -17,12 +17,11 @@ const INITIAL: (string | null)[][] = [
 export function Royal() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#0e0c1a" }}>
-      <p className="text-lg font-bold mb-4 tracking-widest" style={{
+      <p className="text-base font-bold mb-4 tracking-widest uppercase" style={{
         color: "#d4af37",
-        textShadow: "0 0 8px rgba(212,175,55,0.6)",
         fontFamily: "Georgia, serif",
-        letterSpacing: "0.15em",
-      }}>Royal</p>
+        letterSpacing: "0.2em",
+      }}>Gradient Glow</p>
       <div className="rounded-lg overflow-hidden" style={{
         border: "3px solid #d4af37",
         boxShadow: "0 0 24px rgba(212,175,55,0.3), 0 8px 32px rgba(0,0,0,0.8)",
@@ -44,17 +43,20 @@ export function Royal() {
                   }}
                 >
                   {piece && (
-                    <span style={{
-                      fontSize: 36,
-                      lineHeight: 1,
-                      color: isWhite
-                        ? "#f5e070"
-                        : "#c0c0d8",
-                      textShadow: isWhite
-                        ? "0 0 4px rgba(212,175,55,0.8), 0 1px 4px rgba(0,0,0,0.8), 0 0 12px rgba(212,175,55,0.3)"
-                        : "0 0 4px rgba(180,180,220,0.6), 0 1px 4px rgba(0,0,0,0.8), 0 0 10px rgba(160,160,200,0.3)",
-                      filter: "drop-shadow(0px 2px 4px rgba(0,0,0,0.9))",
-                    }}>
+                    <span
+                      style={{
+                        fontSize: 38,
+                        lineHeight: 1,
+                        background: isWhite
+                          ? "linear-gradient(160deg, #fff8c0 0%, #d4af37 50%, #a0780a 100%)"
+                          : "linear-gradient(160deg, #9090c0 0%, #6060a0 50%, #303060 100%)",
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent",
+                        backgroundClip: "text",
+                        filter: isWhite
+                          ? "drop-shadow(0 0 6px rgba(212,175,55,0.8)) drop-shadow(0 2px 4px rgba(0,0,0,0.8))"
+                          : "drop-shadow(0 0 6px rgba(100,100,200,0.7)) drop-shadow(0 2px 4px rgba(0,0,0,0.8))",
+                      }}>
                       {PIECES[piece]}
                     </span>
                   )}
@@ -64,7 +66,7 @@ export function Royal() {
           </div>
         ))}
       </div>
-      <p className="text-sm mt-4" style={{ color: "#d4af3788", fontFamily: "Georgia, serif" }}>Gold &amp; Silver on midnight</p>
+      <p className="text-xs mt-3" style={{ color: "#d4af3766", fontFamily: "Georgia, serif", letterSpacing: "0.1em" }}>Metallic gradient with soft glow</p>
     </div>
   );
 }

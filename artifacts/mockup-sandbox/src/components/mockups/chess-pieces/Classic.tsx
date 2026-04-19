@@ -16,9 +16,16 @@ const INITIAL: (string | null)[][] = [
 
 export function Classic() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#f0d9b5" }}>
-      <p className="text-lg font-bold mb-4 tracking-wide" style={{ color: "#3d2b1f", fontFamily: "Georgia, serif" }}>Classic</p>
-      <div className="rounded-lg overflow-hidden shadow-2xl" style={{ border: "4px solid #8b6914" }}>
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#0e0c1a" }}>
+      <p className="text-base font-bold mb-4 tracking-widest uppercase" style={{
+        color: "#d4af37",
+        fontFamily: "Georgia, serif",
+        letterSpacing: "0.2em",
+      }}>Silhouette</p>
+      <div className="rounded-lg overflow-hidden" style={{
+        border: "3px solid #d4af37",
+        boxShadow: "0 0 24px rgba(212,175,55,0.3), 0 8px 32px rgba(0,0,0,0.8)",
+      }}>
         {INITIAL.map((row, r) => (
           <div key={r} className="flex">
             {row.map((piece, c) => {
@@ -30,18 +37,18 @@ export function Classic() {
                   className="flex items-center justify-center"
                   style={{
                     width: 52, height: 52,
-                    background: light ? "#f0d9b5" : "#b58863",
+                    background: light
+                      ? "linear-gradient(135deg, #1e1a2e 0%, #2a2240 100%)"
+                      : "linear-gradient(135deg, #0a0814 0%, #12101e 100%)",
                   }}
                 >
                   {piece && (
                     <span style={{
-                      fontSize: 36,
+                      fontSize: 38,
                       lineHeight: 1,
-                      color: isWhite ? "#ffffff" : "#1a1a1a",
-                      textShadow: isWhite
-                        ? "0 0 2px #2d2d2d, 0 0 2px #2d2d2d, 0 0 2px #2d2d2d, 0 0 2px #2d2d2d"
-                        : "0 0 2px #e0e0e0, 0 0 2px #e0e0e0",
-                      filter: "drop-shadow(0px 2px 2px rgba(0,0,0,0.4))",
+                      color: isWhite ? "#f5e6c0" : "#111",
+                      WebkitTextStroke: isWhite ? "1.5px #8a6a10" : "1.5px #c8a830",
+                      filter: "drop-shadow(0 3px 6px rgba(0,0,0,0.9))",
                     }}>
                       {PIECES[piece]}
                     </span>
@@ -52,7 +59,7 @@ export function Classic() {
           </div>
         ))}
       </div>
-      <p className="text-sm mt-4" style={{ color: "#6b4c2a" }}>Traditional Staunton style</p>
+      <p className="text-xs mt-3" style={{ color: "#d4af3766", fontFamily: "Georgia, serif", letterSpacing: "0.1em" }}>Bold filled pieces with sharp edges</p>
     </div>
   );
 }

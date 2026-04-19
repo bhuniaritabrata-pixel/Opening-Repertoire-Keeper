@@ -16,15 +16,15 @@ const INITIAL: (string | null)[][] = [
 
 export function Neon() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#070714" }}>
-      <p className="text-lg font-bold mb-4 tracking-widest uppercase" style={{
-        color: "#00f5ff",
-        textShadow: "0 0 10px #00f5ff, 0 0 20px #00f5ff",
-        fontFamily: "monospace",
-      }}>Neon</p>
-      <div className="rounded overflow-hidden" style={{
-        border: "2px solid #00f5ff",
-        boxShadow: "0 0 20px rgba(0,245,255,0.4), 0 0 60px rgba(0,245,255,0.1)",
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#0e0c1a" }}>
+      <p className="text-base font-bold mb-4 tracking-widest uppercase" style={{
+        color: "#d4af37",
+        fontFamily: "Georgia, serif",
+        letterSpacing: "0.2em",
+      }}>3D Carved</p>
+      <div className="rounded-lg overflow-hidden" style={{
+        border: "3px solid #d4af37",
+        boxShadow: "0 0 24px rgba(212,175,55,0.3), 0 8px 32px rgba(0,0,0,0.8)",
       }}>
         {INITIAL.map((row, r) => (
           <div key={r} className="flex">
@@ -37,19 +37,30 @@ export function Neon() {
                   className="flex items-center justify-center"
                   style={{
                     width: 52, height: 52,
-                    background: light ? "#0d1b2e" : "#060d1a",
-                    borderRight: c < 7 ? "1px solid rgba(0,245,255,0.08)" : "none",
-                    borderBottom: r < 7 ? "1px solid rgba(0,245,255,0.08)" : "none",
+                    background: light
+                      ? "linear-gradient(135deg, #1e1a2e 0%, #2a2240 100%)"
+                      : "linear-gradient(135deg, #0a0814 0%, #12101e 100%)",
                   }}
                 >
                   {piece && (
                     <span style={{
-                      fontSize: 34,
+                      fontSize: 38,
                       lineHeight: 1,
-                      color: isWhite ? "#00f5ff" : "#ff00e6",
+                      color: isWhite ? "#fff8e8" : "#2a1a00",
                       textShadow: isWhite
-                        ? "0 0 6px #00f5ff, 0 0 12px #00f5ff, 0 0 20px rgba(0,245,255,0.5)"
-                        : "0 0 6px #ff00e6, 0 0 12px #ff00e6, 0 0 20px rgba(255,0,230,0.5)",
+                        ? [
+                            "-2px -2px 0 #d4af37",
+                            "2px 2px 6px rgba(0,0,0,0.9)",
+                            "1px 1px 0 #b8941f",
+                            "-1px -1px 0 #ffe080",
+                          ].join(", ")
+                        : [
+                            "-2px -2px 0 #1a0d00",
+                            "2px 2px 6px rgba(0,0,0,0.95)",
+                            "1px 1px 0 rgba(0,0,0,0.8)",
+                            "-1px -1px 3px rgba(212,175,55,0.5)",
+                          ].join(", "),
+                      filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.95))",
                     }}>
                       {PIECES[piece]}
                     </span>
@@ -60,7 +71,7 @@ export function Neon() {
           </div>
         ))}
       </div>
-      <p className="text-sm mt-4 tracking-widest" style={{ color: "#00f5ff88", fontFamily: "monospace" }}>Cyan vs Magenta</p>
+      <p className="text-xs mt-3" style={{ color: "#d4af3766", fontFamily: "Georgia, serif", letterSpacing: "0.1em" }}>Deep highlights &amp; shadows for a sculpted look</p>
     </div>
   );
 }

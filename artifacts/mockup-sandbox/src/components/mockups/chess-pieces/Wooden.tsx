@@ -16,11 +16,15 @@ const INITIAL: (string | null)[][] = [
 
 export function Wooden() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#2c1a0e" }}>
-      <p className="text-lg font-bold mb-4 tracking-wide" style={{ color: "#d4a256", fontFamily: "Georgia, serif" }}>Wooden</p>
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#0e0c1a" }}>
+      <p className="text-base font-bold mb-4 tracking-widest uppercase" style={{
+        color: "#d4af37",
+        fontFamily: "Georgia, serif",
+        letterSpacing: "0.2em",
+      }}>Outlined</p>
       <div className="rounded-lg overflow-hidden" style={{
-        border: "6px solid #6b3a1f",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.7), inset 0 0 0 2px #a0622a",
+        border: "3px solid #d4af37",
+        boxShadow: "0 0 24px rgba(212,175,55,0.3), 0 8px 32px rgba(0,0,0,0.8)",
       }}>
         {INITIAL.map((row, r) => (
           <div key={r} className="flex">
@@ -34,19 +38,19 @@ export function Wooden() {
                   style={{
                     width: 52, height: 52,
                     background: light
-                      ? "linear-gradient(135deg, #e8c98a 0%, #d4a050 50%, #c4902a 100%)"
-                      : "linear-gradient(135deg, #6b3a1f 0%, #4a2510 50%, #3a1a08 100%)",
+                      ? "linear-gradient(135deg, #1e1a2e 0%, #2a2240 100%)"
+                      : "linear-gradient(135deg, #0a0814 0%, #12101e 100%)",
                   }}
                 >
                   {piece && (
                     <span style={{
-                      fontSize: 36,
+                      fontSize: 38,
                       lineHeight: 1,
-                      color: isWhite ? "#f5e6c8" : "#1a0a00",
-                      textShadow: isWhite
-                        ? "0 1px 3px rgba(60,30,0,0.8), 0 0 1px rgba(60,30,0,0.6)"
-                        : "0 1px 2px rgba(200,150,80,0.5)",
-                      filter: "drop-shadow(0px 2px 3px rgba(0,0,0,0.6))",
+                      color: "transparent",
+                      WebkitTextStroke: isWhite ? "2px #f0d580" : "2px #a0a8d0",
+                      filter: isWhite
+                        ? "drop-shadow(0 0 4px rgba(212,175,55,0.6))"
+                        : "drop-shadow(0 0 4px rgba(140,150,200,0.5))",
                     }}>
                       {PIECES[piece]}
                     </span>
@@ -57,7 +61,7 @@ export function Wooden() {
           </div>
         ))}
       </div>
-      <p className="text-sm mt-4" style={{ color: "#a06030" }}>Rich mahogany &amp; maple</p>
+      <p className="text-xs mt-3" style={{ color: "#d4af3766", fontFamily: "Georgia, serif", letterSpacing: "0.1em" }}>Hollow outline pieces, fully transparent fill</p>
     </div>
   );
 }
