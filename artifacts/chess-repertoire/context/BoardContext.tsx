@@ -40,6 +40,9 @@ interface BoardContextType {
   pendingPromotion: { from: string; to: string } | null;
   confirmPromotion: (piece: string) => void;
   cancelPromotion: () => void;
+  locked: boolean;
+  setLocked: (l: boolean) => void;
+  deleteCurrentMove: () => void;
 }
 
 const BoardContext = createContext<BoardContextType | null>(null);
@@ -50,7 +53,7 @@ interface BoardProviderProps {
 }
 
 export function BoardProvider({ children, opening }: BoardProviderProps) {
-  const { addMoveToOpening, updateOpening } = useRepertoire();
+  const { addMoveToOpening, updateOpening, deleteMoveNode } = useRepertoire();
   const [fen, setFen] = useState(opening?.rootFen || STARTING_FEN);
   const [flipped, setFlipped] = useState(opening?.color === "black");
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -67,6 +70,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   const [mateIn, setMateIn] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
   const [promotionSquare, setPromotionSquare] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false);
 
   const handleSquarePress = useCallback((sq: string) => {
     if (pendingPromotion) return;
@@ -100,7 +104,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
         setSelectedSquare(null);
         setLegalMoves([]);
 
-        if (opening) {
+        if (opening && !locked) {
           const newNode = addMoveToOpening(opening.id, currentNodeId, selectedSquare, sq, result.san, result.fen);
           if (newNode) {
             setCurrentPath([...currentPath, newNode]);
@@ -119,14 +123,14 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       setSelectedSquare(null);
       setLegalMoves([]);
     }
-  }, [selectedSquare, legalMoves, fen, opening, currentNodeId, currentPath, addMoveToOpening, pendingPromotion]);
+  }, [selectedSquare, legalMoves, fen, opening, currentNodeId, currentPath, addMoveToOpening, pendingPromotion, locked]);
 
   const confirmPromotion = useCallback((piece: string) => {
     if (!pendingPromotion) return;
     const result = applyMove(fen, pendingPromotion.from, pendingPromotion.to, piece as any);
     if (result) {
       setFen(result.fen);
-      if (opening) {
+      if (opening && !locked) {
         const newNode = addMoveToOpening(opening.id, currentNodeId, pendingPromotion.from, pendingPromotion.to, result.san, result.fen);
         if (newNode) {
           setCurrentPath([...currentPath, newNode]);
@@ -136,7 +140,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     }
     setPendingPromotion(null);
     setPromotionSquare(null);
-  }, [pendingPromotion, fen, opening, currentNodeId, currentPath, addMoveToOpening]);
+  }, [pendingPromotion, fen, opening, currentNodeId, currentPath, addMoveToOpening, locked]);
 
   const cancelPromotion = useCallback(() => {
     setPendingPromotion(null);
@@ -226,6 +230,20 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     }
   }, [opening]);
 
+  const deleteCurrentMove = useCallback(() => {
+    if (!opening || !currentNodeId) return;
+    const idToDelete = currentNodeId;
+    // Step back to the previous position first so the board stays valid
+    const newPath = currentPath.slice(0, -1);
+    const prevNode = newPath[newPath.length - 1] || null;
+    setCurrentPath(newPath);
+    setCurrentNodeId(prevNode?.id || null);
+    setFen(prevNode?.move.fen || opening.rootFen || STARTING_FEN);
+    setSelectedSquare(null);
+    setLegalMoves([]);
+    deleteMoveNode(opening.id, idToDelete);
+  }, [opening, currentNodeId, currentPath, deleteMoveNode]);
+
   const annotateNode = useCallback((nodeId: string, annotation: MoveAnnotation | undefined) => {
     if (!opening) return;
 
@@ -252,6 +270,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       evalDepth, setEvalDepth, mateIn, setMateIn,
       annotateNode,
       promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
+      locked, setLocked, deleteCurrentMove,
     }}>
       {children}
     </BoardContext.Provider>

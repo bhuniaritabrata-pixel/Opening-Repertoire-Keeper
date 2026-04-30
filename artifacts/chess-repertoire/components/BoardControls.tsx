@@ -7,7 +7,7 @@ import { useColors } from "@/hooks/useColors";
 
 export default function BoardControls() {
   const colors = useColors();
-  const { goBack, goForward, goToStart, goToEnd, flipped, setFlipped, currentPath } = useBoard();
+  const { goBack, goForward, goToStart, goToEnd, flipped, setFlipped, currentPath, locked, setLocked } = useBoard();
 
   const handlePress = (fn: () => void) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -59,6 +59,24 @@ export default function BoardControls() {
         }}
       >
         <Feather name="refresh-cw" size={20} color={colors.accent} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
+          styles.btn,
+          locked && { backgroundColor: colors.destructive + "22" },
+        ]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          setLocked(!locked);
+        }}
+        accessibilityLabel={locked ? "Unlock board (resume recording)" : "Lock board (free play, don't record)"}
+      >
+        <Feather
+          name={locked ? "lock" : "unlock"}
+          size={20}
+          color={locked ? colors.destructive : colors.accent}
+        />
       </TouchableOpacity>
     </View>
   );

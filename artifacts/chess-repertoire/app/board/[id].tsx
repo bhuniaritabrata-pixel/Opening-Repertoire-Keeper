@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -29,7 +30,7 @@ function BoardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { openings, importPgn, updateOpening } = useRepertoire();
-  const { currentNodeId, annotateNode, currentPath, analysisEnabled, setAnalysisEnabled } = useBoard();
+  const { currentNodeId, annotateNode, currentPath, analysisEnabled, setAnalysisEnabled, deleteCurrentMove } = useBoard();
   const [showTheme, setShowTheme] = useState(false);
   const [showPgn, setShowPgn] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(false);
@@ -46,6 +47,27 @@ function BoardScreen() {
       annotateNode(currentNodeId, annotation);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
+  };
+
+  const handleDeleteMove = () => {
+    if (!currentNodeId) return;
+    const moveSan = currentPath[currentPath.length - 1]?.move.san || "this move";
+    const doDelete = () => {
+      deleteCurrentMove();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    };
+    if (Platform.OS === "web") {
+      if (confirm(`Delete "${moveSan}" and all moves that follow it?`)) doDelete();
+      return;
+    }
+    Alert.alert(
+      "Delete move?",
+      `Delete "${moveSan}" and all moves that follow it?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: doDelete },
+      ],
+    );
   };
 
   if (!opening) {
@@ -132,6 +154,15 @@ function BoardScreen() {
                   currentAnnotation={currentAnnotation}
                   onSelect={handleAnnotate}
                 />
+                <TouchableOpacity
+                  style={[styles.deleteMoveBtn, { borderColor: colors.destructive }]}
+                  onPress={handleDeleteMove}
+                >
+                  <Feather name="trash-2" size={14} color={colors.destructive} />
+                  <Text style={[styles.deleteMoveText, { color: colors.destructive }]}>
+                    Delete this move
+                  </Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -243,5 +274,22 @@ const styles = StyleSheet.create({
   annotationContainer: {
     borderTopWidth: 1,
     padding: 12,
+    gap: 10,
+  },
+  deleteMoveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignSelf: "flex-start",
+  },
+  deleteMoveText: {
+    fontSize: 12,
+    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
 });
