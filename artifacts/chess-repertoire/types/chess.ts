@@ -70,7 +70,18 @@ export interface Opening {
   createdAt: number;
   updatedAt: number;
   tags?: string[];
+  folderId?: string | null;
+  order?: number;
 }
+
+export interface Folder {
+  id: string;
+  name: string;
+  createdAt: number;
+  order?: number;
+}
+
+export type SortMode = "az" | "za" | "manual";
 
 export interface StockfishEval {
   score: number; // centipawns from white's perspective

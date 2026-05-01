@@ -24,7 +24,12 @@ A mobile chess opening repertoire app built with Expo/React Native. Record, revi
 
 ## Chess App Features
 
-- Opening repertoire list with search, add, delete
+- Opening repertoire list with search, add, rename, delete
+- **Folder system**: Create named folders, rename them, expand/collapse
+- **Sort modes**: A→Z, Z→A, and Manual ordering
+- **Manual sort**: Drag ≡ handle to reorder; drag an opening onto a folder to move it in
+- **Move to folder**: Long-press any opening → "Move to Folder" picker
+- **Smooth piece animation**: Chess pieces slide smoothly from square to square (Animated API, 170ms cubic-ease)
 - Interactive chess board with Neo-style pieces (vibrant 2D pieces mimicking chess.com)
 - Board color themes: Classic, Green, Blue Ocean, Purple, Red, Midnight, Coral + Custom color picker
 - Move recording via click/tap on board
