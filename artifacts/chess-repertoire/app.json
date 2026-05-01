@@ -39,6 +39,21 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "68146f03-db4f-4658-83d3-abbc12a4ec39"
+      }
+    },
+    "owner": "ritabrata-bhunia7",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/68146f03-db4f-4658-83d3-abbc12a4ec39"
     }
   }
 }
