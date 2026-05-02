@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Linking,
   Modal,
   Platform,
@@ -71,6 +72,17 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
       setScannedEngines([]);
     }
   }, [visible]);
+
+  // Intercept the Android hardware back button so it closes the modal
+  // instead of bubbling up to expo-router and triggering a GO_BACK warning.
+  useEffect(() => {
+    if (!visible) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
 
   const activeEntry = oexEngines.find(e => e.id === activeOexId);
 
