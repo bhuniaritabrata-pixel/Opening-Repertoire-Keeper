@@ -1,0 +1,13 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": [
+      "expo.modules.oexengine.OexEngineModule"
+    ]
+  },
+  "ios": {
+    "modules": [
+      "OexEngineModule"
+    ]
+  }
+}

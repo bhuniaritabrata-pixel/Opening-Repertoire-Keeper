@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Linking,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +14,13 @@ import {
 } from "react-native";
 import { useEngine } from "@/context/EngineContext";
 import { useColors } from "@/hooks/useColors";
+
+// Native scan is only attempted in real APK builds
+let getInstalledEngines: (() => Promise<{ packageName: string; name: string; serviceName: string }[]>) | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  getInstalledEngines = require("oex-engine").getInstalledEngines;
+} catch {}
 
 interface Props {
   visible: boolean;
@@ -31,6 +39,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
     connectionStatus, connectionError,
     connectEngine, disconnectEngine,
     testConnection,
+    nativeOexAvailable,
   } = useEngine();
 
   // Add form state
@@ -39,7 +48,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
   const [oexPackage, setOexPackage] = useState("");
   const [oexWsUrl, setOexWsUrl] = useState("");
 
-  // Per-entry edit state
+  // Per-entry WS URL edit
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editWsUrl, setEditWsUrl] = useState("");
 
@@ -47,12 +56,19 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
 
+  // Engine scanner
+  const [scanning, setScanning] = useState(false);
+  const [scannedEngines, setScannedEngines] = useState<{ packageName: string; name: string; serviceName: string }[]>([]);
+  const [showScanResults, setShowScanResults] = useState(false);
+
   useEffect(() => {
     if (visible) {
       setShowOexForm(false);
       setOexName(""); setOexPackage(""); setOexWsUrl("");
       setEditingId(null); setEditWsUrl("");
       setTestResult(null);
+      setShowScanResults(false);
+      setScannedEngines([]);
     }
   }, [visible]);
 
@@ -99,6 +115,30 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
     updateOexEngine(id, { wsUrl: editWsUrl.trim() || undefined });
     setEditingId(null);
     setEditWsUrl("");
+  };
+
+  const handleScan = async () => {
+    if (!getInstalledEngines) return;
+    setScanning(true);
+    setShowScanResults(true);
+    setScannedEngines([]);
+    try {
+      const found = await getInstalledEngines();
+      setScannedEngines(found);
+    } catch {
+      setScannedEngines([]);
+    }
+    setScanning(false);
+  };
+
+  const handleAddScanned = (eng: { packageName: string; name: string; serviceName: string }) => {
+    // Don't add duplicates
+    if (!oexEngines.some(e => e.packageName === eng.packageName)) {
+      addOexEngine(eng.name, eng.packageName, undefined, eng.serviceName);
+    }
+    setShowScanResults(false);
+    setActiveSlot("oex");
+    onClose();
   };
 
   const statusColor: Record<string, string> = {
@@ -165,9 +205,73 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
             </TouchableOpacity>
 
             {/* ── Slot 2 — OEX engines ────────────────────────────────── */}
-            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 8 }]}>
-              SLOT 2  ·  OEX ENGINE
-            </Text>
+            <View style={styles.sectionRow}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 8 }]}>
+                SLOT 2  ·  OEX ENGINE
+              </Text>
+              {/* Scan button — only meaningful in APK builds */}
+              <TouchableOpacity
+                style={[
+                  styles.scanBtn,
+                  { borderColor: nativeOexAvailable ? OEX_GREEN : colors.border },
+                ]}
+                onPress={nativeOexAvailable ? handleScan : undefined}
+                disabled={!nativeOexAvailable || scanning}
+                activeOpacity={0.7}
+              >
+                {scanning ? (
+                  <ActivityIndicator size="small" color={OEX_GREEN} />
+                ) : (
+                  <Feather name="search" size={12} color={nativeOexAvailable ? OEX_GREEN : colors.mutedForeground} />
+                )}
+                <Text style={[styles.scanBtnText, { color: nativeOexAvailable ? OEX_GREEN : colors.mutedForeground }]}>
+                  {scanning ? "Scanning…" : "Scan"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* ── Scan results ────────────────────────────────────────── */}
+            {showScanResults && (
+              <View style={[styles.scanResults, { borderColor: OEX_GREEN, backgroundColor: OEX_GREEN_BG }]}>
+                <Text style={[styles.scanResultsTitle, { color: colors.foreground }]}>
+                  {scanning ? "Looking for engine apps…" :
+                   scannedEngines.length === 0 ? "No OEX engines found on this device." :
+                   `Found ${scannedEngines.length} engine${scannedEngines.length > 1 ? "s" : ""}:`}
+                </Text>
+                {scannedEngines.map(eng => (
+                  <TouchableOpacity
+                    key={eng.packageName}
+                    style={[styles.scannedRow, { borderColor: colors.border, backgroundColor: colors.card }]}
+                    onPress={() => handleAddScanned(eng)}
+                    activeOpacity={0.8}
+                  >
+                    <Feather name="cpu" size={14} color={OEX_GREEN} />
+                    <View style={styles.scannedInfo}>
+                      <Text style={[styles.scannedName, { color: colors.foreground }]}>{eng.name}</Text>
+                      <Text style={[styles.scannedPkg, { color: colors.mutedForeground }]} numberOfLines={1}>
+                        {eng.packageName}
+                      </Text>
+                    </View>
+                    <View style={[styles.addChip, { backgroundColor: OEX_GREEN }]}>
+                      <Text style={styles.addChipText}>Add</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity onPress={() => setShowScanResults(false)}>
+                  <Text style={[styles.closeScan, { color: colors.mutedForeground }]}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* APK-only note when in Expo Go */}
+            {!nativeOexAvailable && Platform.OS === "android" && (
+              <View style={[styles.expoGoNote, { backgroundColor: colors.muted + "40", borderColor: colors.border }]}>
+                <Feather name="info" size={12} color={colors.primary} />
+                <Text style={[styles.expoGoNoteText, { color: colors.mutedForeground }]}>
+                  Native OEX IPC (direct engine app) requires an APK build. In Expo Go, use the WebSocket bridge URL instead.
+                </Text>
+              </View>
+            )}
 
             {/* Empty state */}
             {oexEngines.length === 0 && !showOexForm && (
@@ -175,7 +279,9 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                 <Feather name="package" size={22} color={colors.mutedForeground} style={{ marginBottom: 6 }} />
                 <Text style={[styles.emptyOexTitle, { color: colors.foreground }]}>No OEX engines added</Text>
                 <Text style={[styles.emptyOexSub, { color: colors.mutedForeground }]}>
-                  Add Stockfish or any OEX-compatible engine. For live analysis, also enter its WebSocket bridge URL.
+                  {nativeOexAvailable
+                    ? "Tap Scan above to auto-detect installed engines, or add one manually."
+                    : "Add an OEX engine manually. In a signed APK, Scan detects installed engines automatically."}
                 </Text>
                 <TouchableOpacity
                   style={[styles.playStoreLink, { borderColor: OEX_GREEN }]}
@@ -191,8 +297,17 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
             {oexEngines.map(eng => {
               const isSelected = activeOexId === eng.id;
               const isActive = activeSlot === "oex" && isSelected;
-              const isConnectedEntry = isActive && (connectionStatus === "ready" || connectionStatus === "connecting");
               const isEditingThis = editingId === eng.id;
+
+              // Determine connection mode for this entry
+              const mode: "ws" | "native" | "none" =
+                eng.wsUrl ? "ws" : (eng.packageName && nativeOexAvailable ? "native" : "none");
+
+              const modeLabel = mode === "native"
+                ? "Native IPC"
+                : mode === "ws"
+                  ? "WebSocket bridge"
+                  : "Manual only";
 
               return (
                 <View
@@ -207,7 +322,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                     },
                   ]}
                 >
-                  {/* Engine header row */}
+                  {/* Header row */}
                   <TouchableOpacity
                     style={styles.oexCardHeader}
                     onPress={() => handleSelectOex(eng.id)}
@@ -222,11 +337,13 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                         <View style={[styles.oexBadge, { borderColor: OEX_GREEN }]}>
                           <Text style={[styles.oexBadgeText, { color: OEX_GREEN }]}>OEX</Text>
                         </View>
+                        {mode === "native" && (
+                          <View style={[styles.modeBadge, { backgroundColor: OEX_GREEN }]}>
+                            <Text style={styles.modeBadgeText}>IPC</Text>
+                          </View>
+                        )}
                       </View>
-                      <Text
-                        style={[styles.slotSub, { color: colors.mutedForeground, fontFamily: "monospace" }]}
-                        numberOfLines={1}
-                      >
+                      <Text style={[styles.slotSub, { color: colors.mutedForeground, fontFamily: "monospace" }]} numberOfLines={1}>
                         {eng.packageName}
                       </Text>
                     </View>
@@ -250,9 +367,26 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                     </TouchableOpacity>
                   </TouchableOpacity>
 
-                  {/* WebSocket section — visible when selected */}
+                  {/* Expanded section when selected */}
                   {isSelected && (
                     <View style={[styles.wsSection, { borderTopColor: colors.border }]}>
+
+                      {/* Mode indicator */}
+                      <View style={[styles.modeRow, { backgroundColor: colors.muted + "30", borderColor: colors.border }]}>
+                        <Feather
+                          name={mode === "native" ? "smartphone" : mode === "ws" ? "wifi" : "alert-circle"}
+                          size={12}
+                          color={mode === "none" ? colors.mutedForeground : OEX_GREEN}
+                        />
+                        <Text style={[styles.modeText, { color: mode === "none" ? colors.mutedForeground : OEX_GREEN }]}>
+                          {mode === "native"
+                            ? "Using native Android IPC — no network needed"
+                            : mode === "ws"
+                              ? "Using WebSocket bridge"
+                              : "No connection method — set WS URL or build APK"}
+                        </Text>
+                      </View>
+
                       {/* WS URL display / edit */}
                       {isEditingThis ? (
                         <View style={styles.wsEditRow}>
@@ -260,7 +394,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                             style={[styles.wsInput, { color: colors.foreground, borderColor: OEX_GREEN, backgroundColor: colors.card }]}
                             value={editWsUrl}
                             onChangeText={setEditWsUrl}
-                            placeholder="ws://192.168.1.x:3004"
+                            placeholder="ws://192.168.1.x:3004  (optional fallback)"
                             placeholderTextColor={colors.mutedForeground}
                             autoCapitalize="none"
                             autoCorrect={false}
@@ -291,36 +425,37 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                             style={[styles.wsUrlText, { color: eng.wsUrl ? colors.foreground : colors.mutedForeground, fontFamily: "monospace" }]}
                             numberOfLines={1}
                           >
-                            {eng.wsUrl || "Tap to set WebSocket bridge URL…"}
+                            {eng.wsUrl || (nativeOexAvailable ? "WS bridge (optional — native IPC active)" : "Tap to set WebSocket bridge URL…")}
                           </Text>
                           <Feather name="edit-2" size={12} color={colors.mutedForeground} />
                         </TouchableOpacity>
                       )}
 
-                      {/* Test + Connect row */}
-                      {eng.wsUrl && !isEditingThis && (
+                      {/* Test + Connect — show when WS URL set OR native available */}
+                      {(eng.wsUrl || mode === "native") && !isEditingThis && (
                         <View style={styles.wsActionsRow}>
-                          {/* Test button */}
-                          <TouchableOpacity
-                            style={[styles.testBtn, { borderColor: colors.border }]}
-                            onPress={() => handleTest(eng.wsUrl!)}
-                            disabled={testing}
-                          >
-                            {testing
-                              ? <ActivityIndicator size="small" color={colors.primary} />
-                              : <Feather name="activity" size={13} color={colors.primary} />}
-                            <Text style={[styles.testBtnText, { color: colors.primary }]}>
-                              {testing ? "Testing…" : "Test"}
-                            </Text>
-                            {testResult === "ok" && <Feather name="check" size={12} color="#4caf50" />}
-                            {testResult === "fail" && <Feather name="x" size={12} color={colors.destructive} />}
-                          </TouchableOpacity>
+                          {eng.wsUrl && (
+                            <TouchableOpacity
+                              style={[styles.testBtn, { borderColor: colors.border }]}
+                              onPress={() => handleTest(eng.wsUrl!)}
+                              disabled={testing}
+                            >
+                              {testing
+                                ? <ActivityIndicator size="small" color={colors.primary} />
+                                : <Feather name="activity" size={13} color={colors.primary} />}
+                              <Text style={[styles.testBtnText, { color: colors.primary }]}>
+                                {testing ? "Testing…" : "Test"}
+                              </Text>
+                              {testResult === "ok" && <Feather name="check" size={12} color="#4caf50" />}
+                              {testResult === "fail" && <Feather name="x" size={12} color={colors.destructive} />}
+                            </TouchableOpacity>
+                          )}
 
-                          {/* Connect / Disconnect button */}
                           <TouchableOpacity
                             style={[
                               styles.connectBtn,
                               {
+                                flex: eng.wsUrl ? 1.4 : 1,
                                 backgroundColor:
                                   connectionStatus === "ready" ? "#4caf50" :
                                   connectionStatus === "connecting" ? colors.primary + "aa" :
@@ -335,7 +470,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                               <ActivityIndicator size="small" color="#fff" />
                             ) : (
                               <Feather
-                                name={connectionStatus === "ready" ? "wifi-off" : "link"}
+                                name={connectionStatus === "ready" ? "wifi-off" : mode === "native" ? "smartphone" : "link"}
                                 size={13}
                                 color="#fff"
                               />
@@ -343,14 +478,14 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                             <Text style={styles.connectBtnText}>
                               {connectionStatus === "ready" ? "Disconnect" :
                                connectionStatus === "connecting" ? "Connecting…" :
-                               "Connect"}
+                               mode === "native" ? "Connect via IPC" : "Connect"}
                             </Text>
                           </TouchableOpacity>
                         </View>
                       )}
 
                       {/* Status line */}
-                      {isActive && eng.wsUrl && !isEditingThis && (
+                      {isActive && (mode === "ws" || mode === "native") && !isEditingThis && (
                         <View style={styles.statusRow}>
                           <View style={[styles.statusDot, { backgroundColor: statusColor[connectionStatus] }]} />
                           <Text style={[styles.statusText, { color: statusColor[connectionStatus] }]}>
@@ -358,24 +493,13 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                           </Text>
                         </View>
                       )}
-
-                      {/* No wsUrl hint */}
-                      {!eng.wsUrl && !isEditingThis && (
-                        <Text style={[styles.wsHint, { color: colors.mutedForeground }]}>
-                          Set a WebSocket URL to enable live analysis. Run{" "}
-                          <Text style={{ fontFamily: "monospace", color: colors.primary }}>
-                            npx stockfish-ws-proxy
-                          </Text>{" "}
-                          on your PC and enter its address. OEX native IPC activates in signed APK builds.
-                        </Text>
-                      )}
                     </View>
                   )}
                 </View>
               );
             })}
 
-            {/* Add OEX engine form */}
+            {/* Add OEX form */}
             {showOexForm ? (
               <View style={[styles.oexForm, { borderColor: OEX_GREEN, backgroundColor: OEX_GREEN_BG }]}>
                 <Text style={[styles.oexFormTitle, { color: colors.foreground }]}>Add OEX Engine</Text>
@@ -402,7 +526,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
 
                 <Text style={[styles.configLabel, { color: colors.mutedForeground }]}>
                   WebSocket bridge URL{" "}
-                  <Text style={{ fontWeight: "400", fontSize: 11 }}>(optional — for live analysis)</Text>
+                  <Text style={{ fontWeight: "400", fontSize: 11 }}>(optional · for Expo Go)</Text>
                 </Text>
                 <TextInput
                   style={[styles.input, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card, fontFamily: "monospace", fontSize: 12 }]}
@@ -438,7 +562,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                 onPress={() => setShowOexForm(true)}
               >
                 <Feather name="plus-circle" size={15} color={OEX_GREEN} />
-                <Text style={[styles.addOexTriggerText, { color: OEX_GREEN }]}>Add OEX Engine</Text>
+                <Text style={[styles.addOexTriggerText, { color: OEX_GREEN }]}>Add OEX Engine Manually</Text>
               </TouchableOpacity>
             )}
 
@@ -463,7 +587,37 @@ const styles = StyleSheet.create({
   titleLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { fontSize: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
   closeBtn: { padding: 4 },
-  sectionLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1, marginBottom: 6, marginTop: 4 },
+
+  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
+  sectionLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1, marginBottom: 6 },
+  scanBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  scanBtnText: { fontSize: 11, fontWeight: "700" },
+
+  // Scan results
+  scanResults: {
+    borderWidth: 1.5, borderRadius: 14, padding: 12, marginBottom: 10, gap: 8,
+  },
+  scanResultsTitle: { fontSize: 13, fontWeight: "600", marginBottom: 4 },
+  scannedRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    borderWidth: 1, borderRadius: 10, padding: 10,
+  },
+  scannedInfo: { flex: 1 },
+  scannedName: { fontSize: 13, fontWeight: "700" },
+  scannedPkg: { fontSize: 11, fontFamily: "monospace", marginTop: 1 },
+  addChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+  addChipText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  closeScan: { fontSize: 12, textAlign: "center", marginTop: 4 },
+
+  // Expo Go notice
+  expoGoNote: {
+    flexDirection: "row", alignItems: "flex-start", gap: 7,
+    borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 8,
+  },
+  expoGoNoteText: { flex: 1, fontSize: 11, lineHeight: 16 },
 
   slotCard: {
     flexDirection: "row", alignItems: "center",
@@ -476,69 +630,51 @@ const styles = StyleSheet.create({
   activeBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   activeBadgeText: { color: "#fff", fontSize: 11, fontWeight: "700" },
 
-  // OEX card (expandable)
-  oexCard: {
-    borderWidth: 1.5, borderRadius: 14, marginBottom: 8, overflow: "hidden",
-  },
-  oexCardHeader: {
-    flexDirection: "row", alignItems: "center",
-    padding: 12, gap: 10,
-  },
+  oexCard: { borderWidth: 1.5, borderRadius: 14, marginBottom: 8, overflow: "hidden" },
+  oexCardHeader: { flexDirection: "row", alignItems: "center", padding: 12, gap: 10 },
   oexNameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   oexBadge: { borderWidth: 1.5, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 },
   oexBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  modeBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+  modeBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
   selectCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, justifyContent: "center", alignItems: "center" },
   selectDot: { width: 10, height: 10, borderRadius: 5 },
   deleteBtn: { padding: 6 },
 
-  // WebSocket section inside OEX card
-  wsSection: {
-    borderTopWidth: 1, paddingHorizontal: 12, paddingBottom: 12, paddingTop: 10, gap: 8,
+  wsSection: { borderTopWidth: 1, paddingHorizontal: 12, paddingBottom: 12, paddingTop: 10, gap: 8 },
+
+  modeRow: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
   },
+  modeText: { fontSize: 11, flex: 1 },
+
   wsUrlRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
     borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8,
   },
   wsUrlText: { flex: 1, fontSize: 12 },
   wsEditRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  wsInput: {
-    flex: 1, borderWidth: 1.5, borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 8,
-    fontSize: 12, fontFamily: "monospace",
-  },
-  wsActionBtn: {
-    width: 34, height: 34, borderRadius: 8, justifyContent: "center", alignItems: "center",
-  },
+  wsInput: { flex: 1, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12, fontFamily: "monospace" },
+  wsActionBtn: { width: 34, height: 34, borderRadius: 8, justifyContent: "center", alignItems: "center" },
   wsActionsRow: { flexDirection: "row", gap: 8 },
-  testBtn: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, flex: 1,
-  },
+  testBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, flex: 1 },
   testBtnText: { fontSize: 12, fontWeight: "600" },
-  connectBtn: {
-    flex: 1.4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    borderRadius: 8, paddingVertical: 8,
-  },
+  connectBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 8, paddingVertical: 8 },
   connectBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusText: { fontSize: 12, fontWeight: "600" },
-  wsHint: { fontSize: 11, lineHeight: 17 },
 
-  // Empty state
   emptyOex: {
     borderWidth: 1.5, borderRadius: 14, borderStyle: "dashed",
     padding: 20, marginBottom: 10, alignItems: "center",
   },
   emptyOexTitle: { fontSize: 14, fontWeight: "700", marginBottom: 4 },
   emptyOexSub: { fontSize: 12, textAlign: "center", lineHeight: 18, marginBottom: 12 },
-  playStoreLink: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    borderWidth: 1.5, borderRadius: 8, paddingVertical: 7, paddingHorizontal: 12,
-  },
+  playStoreLink: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1.5, borderRadius: 8, paddingVertical: 7, paddingHorizontal: 12 },
   playStoreLinkText: { fontSize: 12, fontWeight: "600" },
 
-  // Add trigger
   addOexTrigger: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     borderWidth: 1.5, borderRadius: 12, borderStyle: "dashed",
@@ -546,14 +682,10 @@ const styles = StyleSheet.create({
   },
   addOexTriggerText: { fontSize: 13, fontWeight: "700" },
 
-  // Add form
   oexForm: { borderWidth: 1.5, borderRadius: 14, padding: 14, marginBottom: 10, gap: 6 },
   oexFormTitle: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 4 },
   configLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.3, marginTop: 4 },
-  input: {
-    borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9,
-    fontSize: 13,
-  },
+  input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9, fontSize: 13 },
   oexFormActions: { flexDirection: "row", gap: 8, marginTop: 8 },
   cancelBtn: { flex: 1, borderWidth: 1, borderRadius: 8, paddingVertical: 9, alignItems: "center" },
   cancelBtnText: { fontSize: 13, fontWeight: "600" },
