@@ -88,19 +88,14 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
 
   const toggleBoardAnnotations = useCallback(() => setShowBoardAnnotations(v => !v), []);
 
-  // Build a map of destination square → annotation for all annotated children of the current node
+  // Show annotation badge on the destination square of the current move (the move you are viewing)
   const squareAnnotations = useMemo<Record<string, { annotation: MoveAnnotation; from: string }>>(() => {
-    if (!showBoardAnnotations || !opening) return {};
-    const children = currentNodeId === null
-      ? opening.moveTree
-      : (findNodeById(opening.moveTree, currentNodeId)?.children ?? []);
-    const result: Record<string, { annotation: MoveAnnotation; from: string }> = {};
-    for (const child of children) {
-      if (child.move.annotation) {
-        result[child.move.to] = { annotation: child.move.annotation, from: child.move.from };
-      }
-    }
-    return result;
+    if (!showBoardAnnotations || !opening || !currentNodeId) return {};
+    const currentNode = findNodeById(opening.moveTree, currentNodeId);
+    if (!currentNode?.move.annotation) return {};
+    return {
+      [currentNode.move.to]: { annotation: currentNode.move.annotation, from: currentNode.move.from },
+    };
   }, [opening, currentNodeId, showBoardAnnotations]);
 
   const handleSquarePress = useCallback((sq: string) => {
