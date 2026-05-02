@@ -42,15 +42,15 @@ export const ANNOTATION_SYMBOLS: Record<MoveAnnotation, string> = {
 };
 
 export const ANNOTATION_COLORS: Record<MoveAnnotation, string> = {
-  brilliant: "#00bcd4",
-  great: "#4caf50",
-  good: "#8bc34a",
-  best: "#2196f3",
-  second_best: "#7c3aed",
-  book: "#7c4a03",
-  inaccuracy: "#ff9800",
-  mistake: "#ff5722",
-  blunder: "#f44336",
+  brilliant:   "#1baca6",   // Chess.com teal
+  best:        "#5c8a3c",   // Chess.com green
+  second_best: "#5c8a3c",   // same green
+  great:       "#3b6ea8",   // Chess.com deep blue
+  good:        "#97af8b",   // Chess.com light green
+  book:        "#c8a45a",   // warm amber
+  inaccuracy:  "#f0c865",   // Chess.com yellow
+  mistake:     "#e6912c",   // Chess.com orange
+  blunder:     "#ca3431",   // Chess.com red
 };
 
 export interface MoveNode {
