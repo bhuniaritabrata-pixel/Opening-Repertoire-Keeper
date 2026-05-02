@@ -11,7 +11,11 @@
 
 const defaultTransformer = require('@expo/metro-config/build/babel-transformer');
 
-const PRIVATE_PATH_RE = /react-native[/\\]src[/\\]private/;
+// Only intercept the virtualview directory — these files use inline complex
+// Flow types (NativeModeChangeEvent) that codegen@0.83.6 cannot parse.
+// specs_DEPRECATED files use simpler imported types and must NOT be stubbed
+// because React Native needs their generated view configs at runtime.
+const PRIVATE_PATH_RE = /react-native[/\\]src[/\\]private[/\\]components[/\\]virtualview/;
 const CODEGEN_CALL_RE = /codegenNativeComponent(?:<[^>]*>)?\s*\(\s*['"]([^'"]+)['"]/;
 
 function makeStub(viewName) {
