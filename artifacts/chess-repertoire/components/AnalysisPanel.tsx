@@ -68,7 +68,7 @@ export default function AnalysisPanel() {
   } = useBoard();
 
   const {
-    activeSlot, externalConfig,
+    activeSlot, oexEngines, activeOexId,
     connectionStatus, connectionError,
     connectEngine, engine,
   } = useEngine();
@@ -80,11 +80,13 @@ export default function AnalysisPanel() {
 
   const completedEvalRef = useRef<{ score: number; fen: string } | null>(null);
 
+  // Auto-connect when switching to OEX slot with a configured wsUrl
+  const activeOexEntry = oexEngines.find(e => e.id === activeOexId);
   useEffect(() => {
-    if (analysisEnabled && activeSlot === "external" && connectionStatus === "idle") {
+    if (analysisEnabled && activeSlot === "oex" && activeOexEntry?.wsUrl && connectionStatus === "idle") {
       connectEngine();
     }
-  }, [analysisEnabled, activeSlot, connectionStatus]);
+  }, [analysisEnabled, activeSlot, activeOexEntry?.wsUrl, connectionStatus]);
 
   useEffect(() => {
     cancelRef.current?.();
@@ -105,7 +107,7 @@ export default function AnalysisPanel() {
 
     setBestMoveArrow(null);
 
-    if (activeSlot === "external" && engine?.isReady()) {
+    if (activeSlot === "oex" && engine?.isReady()) {
       setIsAnalyzing(true);
       engine.analyze(fen, evalDepth, (result) => {
         const score = result.score ?? 0;
@@ -176,13 +178,11 @@ export default function AnalysisPanel() {
     : undefined;
 
   const engineLabel =
-    activeSlot === "external" && externalConfig
-      ? externalConfig.name
-      : activeSlot === "oex"
-        ? "OEX Engine"
-        : "Built-in";
+    activeSlot === "oex"
+      ? (activeOexEntry?.name ?? "OEX Engine")
+      : "Built-in";
 
-  const chipStatus = activeSlot === "external" ? connectionStatus : "ready";
+  const chipStatus = activeSlot === "oex" ? connectionStatus : "ready";
 
   const chipColor: Record<string, string> = {
     idle: colors.mutedForeground,
@@ -225,7 +225,7 @@ export default function AnalysisPanel() {
         <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
       </TouchableOpacity>
 
-      {analysisEnabled && activeSlot === "external" && connectionStatus !== "ready" && (
+      {analysisEnabled && activeSlot === "oex" && activeOexEntry?.wsUrl && connectionStatus !== "ready" && (
         <TouchableOpacity
           style={[styles.statusBanner, {
             backgroundColor: chipColor[connectionStatus] + "15",
@@ -235,8 +235,8 @@ export default function AnalysisPanel() {
         >
           <Feather name="wifi-off" size={13} color={chipColor[connectionStatus]} />
           <Text style={[styles.statusBannerText, { color: chipColor[connectionStatus] }]}>
-            {connectionStatus === "connecting" && "Connecting to engine…"}
-            {connectionStatus === "idle" && "Tap to connect external engine"}
+            {connectionStatus === "connecting" && "Connecting to OEX engine…"}
+            {connectionStatus === "idle" && "Tap to connect OEX engine"}
             {connectionStatus === "disconnected" && "Disconnected — tap to reconnect"}
             {connectionStatus === "error" && `Error: ${connectionError ?? "connection failed"} — tap to retry`}
           </Text>

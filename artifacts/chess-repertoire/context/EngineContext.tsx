@@ -2,50 +2,42 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { UCIEngine } from "@/utils/uciEngine";
 
-export type EngineSlot = "builtin" | "oex" | "external";
+export type EngineSlot = "builtin" | "oex";
 export type ConnectionStatus = "idle" | "connecting" | "ready" | "error" | "disconnected";
-
-export interface ExternalEngineConfig {
-  name: string;
-  url: string;
-}
 
 export interface OexEngineEntry {
   id: string;
   name: string;
   packageName: string;
+  wsUrl?: string; // Optional UCI-over-WebSocket bridge URL, e.g. ws://192.168.1.5:3004
 }
 
 interface EngineContextType {
   activeSlot: EngineSlot;
   setActiveSlot: (s: EngineSlot) => void;
-  // OEX
   oexEngines: OexEngineEntry[];
   activeOexId: string | null;
-  addOexEngine: (name: string, packageName: string) => void;
+  addOexEngine: (name: string, packageName: string, wsUrl?: string) => void;
+  updateOexEngine: (id: string, updates: Partial<OexEngineEntry>) => void;
   removeOexEngine: (id: string) => void;
   selectOexEngine: (id: string) => void;
-  // External / WebSocket
-  externalConfig: ExternalEngineConfig | null;
-  saveExternalEngine: (cfg: ExternalEngineConfig) => Promise<void>;
-  removeExternalEngine: () => void;
   connectionStatus: ConnectionStatus;
   connectionError: string | null;
   connectEngine: () => Promise<void>;
   disconnectEngine: () => void;
   engine: UCIEngine | null;
-  testConnection: (cfg: ExternalEngineConfig) => Promise<boolean>;
+  testConnection: (url: string) => Promise<boolean>;
   // Legacy aliases so AnalysisPanel keeps working
   engineType: EngineSlot;
   setEngineType: (s: EngineSlot) => void;
+  externalConfig: null; // kept for API compatibility
 }
 
 const EngineContext = createContext<EngineContextType | null>(null);
-const STORAGE_KEY = "@chess_engine_config_v3";
+const STORAGE_KEY = "@chess_engine_config_v4";
 
 export function EngineProvider({ children }: { children: React.ReactNode }) {
   const [activeSlot, setActiveSlotState] = useState<EngineSlot>("builtin");
-  const [externalConfig, setExternalConfig] = useState<ExternalEngineConfig | null>(null);
   const [oexEngines, setOexEngines] = useState<OexEngineEntry[]>([]);
   const [activeOexId, setActiveOexId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
@@ -57,8 +49,9 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
       if (!raw) return;
       try {
         const data = JSON.parse(raw);
-        if (data.activeSlot) setActiveSlotState(data.activeSlot);
-        if (data.externalConfig) setExternalConfig(data.externalConfig);
+        if (data.activeSlot && (data.activeSlot === "builtin" || data.activeSlot === "oex")) {
+          setActiveSlotState(data.activeSlot);
+        }
         if (Array.isArray(data.oexEngines)) setOexEngines(data.oexEngines);
         if (data.activeOexId) setActiveOexId(data.activeOexId);
       } catch {}
@@ -67,40 +60,43 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
 
   const persist = useCallback((
     slot: EngineSlot,
-    cfg: ExternalEngineConfig | null,
     oex: OexEngineEntry[],
     oexId: string | null,
   ) => {
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
-      activeSlot: slot, externalConfig: cfg, oexEngines: oex, activeOexId: oexId,
-    }));
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ activeSlot: slot, oexEngines: oex, activeOexId: oexId }));
   }, []);
 
   const setActiveSlot = useCallback((s: EngineSlot) => {
     setActiveSlotState(s);
-    persist(s, externalConfig, oexEngines, activeOexId);
-    if (s !== "external") {
+    persist(s, oexEngines, activeOexId);
+    if (s === "builtin") {
       engineRef.current?.disconnect();
       engineRef.current = null;
       setConnectionStatus("idle");
       setConnectionError(null);
     }
-  }, [externalConfig, oexEngines, activeOexId, persist]);
+  }, [oexEngines, activeOexId, persist]);
 
   // ── OEX management ────────────────────────────────────────────────────────
-  const addOexEngine = useCallback((name: string, packageName: string) => {
+  const addOexEngine = useCallback((name: string, packageName: string, wsUrl?: string) => {
     const entry: OexEngineEntry = {
       id: Date.now().toString(),
       name: name.trim() || packageName,
       packageName: packageName.trim(),
+      wsUrl: wsUrl?.trim() || undefined,
     };
     const next = [...oexEngines, entry];
-    setOexEngines(next);
-    // Auto-select if this is the first one
     const newActiveId = oexEngines.length === 0 ? entry.id : activeOexId;
+    setOexEngines(next);
     setActiveOexId(newActiveId);
-    persist(activeSlot, externalConfig, next, newActiveId);
-  }, [oexEngines, activeOexId, activeSlot, externalConfig, persist]);
+    persist(activeSlot, next, newActiveId);
+  }, [oexEngines, activeOexId, activeSlot, persist]);
+
+  const updateOexEngine = useCallback((id: string, updates: Partial<OexEngineEntry>) => {
+    const next = oexEngines.map(e => e.id === id ? { ...e, ...updates } : e);
+    setOexEngines(next);
+    persist(activeSlot, next, activeOexId);
+  }, [oexEngines, activeOexId, activeSlot, persist]);
 
   const removeOexEngine = useCallback((id: string) => {
     const next = oexEngines.filter(e => e.id !== id);
@@ -111,41 +107,41 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     setActiveOexId(newActiveId);
     if (next.length === 0 && activeSlot === "oex") {
       setActiveSlotState("builtin");
-      persist("builtin", externalConfig, next, null);
+      persist("builtin", next, null);
     } else {
-      persist(activeSlot, externalConfig, next, newActiveId);
+      persist(activeSlot, next, newActiveId);
     }
-  }, [oexEngines, activeOexId, activeSlot, externalConfig, persist]);
+    // Disconnect if removed engine was the connected one
+    if (activeOexId === id) {
+      engineRef.current?.disconnect();
+      engineRef.current = null;
+      setConnectionStatus("idle");
+      setConnectionError(null);
+    }
+  }, [oexEngines, activeOexId, activeSlot, persist]);
 
   const selectOexEngine = useCallback((id: string) => {
-    setActiveOexId(id);
-    persist(activeSlot, externalConfig, oexEngines, id);
-  }, [activeSlot, externalConfig, oexEngines, persist]);
-
-  // ── External WebSocket ────────────────────────────────────────────────────
-  const saveExternalEngine = useCallback(async (cfg: ExternalEngineConfig) => {
-    setExternalConfig(cfg);
-    persist(activeSlot, cfg, oexEngines, activeOexId);
-  }, [activeSlot, oexEngines, activeOexId, persist]);
-
-  const removeExternalEngine = useCallback(() => {
+    // Disconnect from previous before switching
     engineRef.current?.disconnect();
     engineRef.current = null;
-    setExternalConfig(null);
-    setActiveSlotState("builtin");
     setConnectionStatus("idle");
     setConnectionError(null);
-    persist("builtin", null, oexEngines, activeOexId);
-  }, [oexEngines, activeOexId, persist]);
+    setActiveOexId(id);
+    persist(activeSlot, oexEngines, id);
+  }, [activeSlot, oexEngines, persist]);
 
+  // ── WebSocket connection (used when OEX entry has a wsUrl) ─────────────────
   const connectEngine = useCallback(async () => {
-    if (!externalConfig) return;
+    const activeEntry = oexEngines.find(e => e.id === activeOexId);
+    const wsUrl = activeEntry?.wsUrl?.trim();
+    if (!wsUrl) return;
+
     engineRef.current?.disconnect();
     engineRef.current = null;
     setConnectionError(null);
     setConnectionStatus("connecting");
 
-    const eng = new UCIEngine(externalConfig.url);
+    const eng = new UCIEngine(wsUrl);
     engineRef.current = eng;
 
     try {
@@ -161,7 +157,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
       setConnectionStatus("error");
       setConnectionError(e?.message ?? "Failed to connect");
     }
-  }, [externalConfig]);
+  }, [oexEngines, activeOexId]);
 
   const disconnectEngine = useCallback(() => {
     engineRef.current?.disconnect();
@@ -170,8 +166,8 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     setConnectionError(null);
   }, []);
 
-  const testConnection = useCallback(async (cfg: ExternalEngineConfig): Promise<boolean> => {
-    const probe = new UCIEngine(cfg.url);
+  const testConnection = useCallback(async (url: string): Promise<boolean> => {
+    const probe = new UCIEngine(url);
     try {
       await probe.connect(() => {});
       probe.disconnect();
@@ -187,11 +183,9 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     oexEngines,
     activeOexId,
     addOexEngine,
+    updateOexEngine,
     removeOexEngine,
     selectOexEngine,
-    externalConfig,
-    saveExternalEngine,
-    removeExternalEngine,
     connectionStatus,
     connectionError,
     connectEngine,
@@ -200,6 +194,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     testConnection,
     engineType: activeSlot,
     setEngineType: setActiveSlot,
+    externalConfig: null,
   };
 
   return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>;

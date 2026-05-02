@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useEngine, EngineSlot } from "@/context/EngineContext";
+import { useEngine } from "@/context/EngineContext";
 import { useColors } from "@/hooks/useColors";
 
 interface Props {
@@ -26,52 +26,37 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
   const colors = useColors();
   const {
     activeSlot, setActiveSlot,
-    oexEngines, activeOexId, addOexEngine, removeOexEngine, selectOexEngine,
-    externalConfig, saveExternalEngine, removeExternalEngine,
+    oexEngines, activeOexId,
+    addOexEngine, updateOexEngine, removeOexEngine, selectOexEngine,
     connectionStatus, connectionError,
     connectEngine, disconnectEngine,
     testConnection,
   } = useEngine();
 
-  // External slot state
-  const [name, setName] = useState(externalConfig?.name ?? "Stockfish");
-  const [url, setUrl] = useState(externalConfig?.url ?? "ws://192.168.1.x:3004");
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
-  const [expandedSlot, setExpandedSlot] = useState<EngineSlot | null>(null);
-
-  // OEX add-engine form
+  // Add form state
   const [showOexForm, setShowOexForm] = useState(false);
   const [oexName, setOexName] = useState("");
   const [oexPackage, setOexPackage] = useState("");
+  const [oexWsUrl, setOexWsUrl] = useState("");
+
+  // Per-entry edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editWsUrl, setEditWsUrl] = useState("");
+
+  // Connection testing
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
 
   useEffect(() => {
     if (visible) {
-      setName(externalConfig?.name ?? "Stockfish");
-      setUrl(externalConfig?.url ?? "ws://192.168.1.x:3004");
-      setTestResult(null);
-      setExpandedSlot(activeSlot === "external" ? "external" : null);
       setShowOexForm(false);
-      setOexName("");
-      setOexPackage("");
+      setOexName(""); setOexPackage(""); setOexWsUrl("");
+      setEditingId(null); setEditWsUrl("");
+      setTestResult(null);
     }
-  }, [visible, externalConfig, activeSlot]);
+  }, [visible]);
 
-  const handleTest = async () => {
-    setTesting(true);
-    setTestResult(null);
-    const ok = await testConnection({ name, url: url.trim() });
-    setTestResult(ok ? "ok" : "fail");
-    setTesting(false);
-  };
-
-  const handleSaveAndConnect = async () => {
-    const cfg = { name: name.trim() || "External Engine", url: url.trim() };
-    await saveExternalEngine(cfg);
-    setActiveSlot("external");
-    connectEngine();
-    onClose();
-  };
+  const activeEntry = oexEngines.find(e => e.id === activeOexId);
 
   const handleSelectBuiltin = () => {
     setActiveSlot("builtin");
@@ -81,11 +66,9 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
 
   const handleAddOex = () => {
     if (!oexPackage.trim()) return;
-    addOexEngine(oexName, oexPackage);
-    setOexName("");
-    setOexPackage("");
+    addOexEngine(oexName, oexPackage, oexWsUrl || undefined);
+    setOexName(""); setOexPackage(""); setOexWsUrl("");
     setShowOexForm(false);
-    // Auto-switch to OEX slot
     setActiveSlot("oex");
     onClose();
   };
@@ -94,6 +77,28 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
     selectOexEngine(id);
     setActiveSlot("oex");
     onClose();
+  };
+
+  const handleConnect = () => {
+    if (connectionStatus === "ready" || connectionStatus === "connecting") {
+      disconnectEngine();
+    } else {
+      connectEngine();
+    }
+  };
+
+  const handleTest = async (url: string) => {
+    setTesting(true);
+    setTestResult(null);
+    const ok = await testConnection(url);
+    setTestResult(ok ? "ok" : "fail");
+    setTesting(false);
+  };
+
+  const handleSaveWsUrl = (id: string) => {
+    updateOexEngine(id, { wsUrl: editWsUrl.trim() || undefined });
+    setEditingId(null);
+    setEditWsUrl("");
   };
 
   const statusColor: Record<string, string> = {
@@ -130,7 +135,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
               </TouchableOpacity>
             </View>
 
-            {/* ── Slot 1 — Built-in ──────────────────────────────────── */}
+            {/* ── Slot 1 — Built-in ───────────────────────────────────── */}
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>SLOT 1</Text>
             <TouchableOpacity
               style={[
@@ -159,18 +164,18 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
               )}
             </TouchableOpacity>
 
-            {/* ── Slot 2 — OEX ───────────────────────────────────────── */}
-            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-              SLOT 2  ·  OEX ENGINES
+            {/* ── Slot 2 — OEX engines ────────────────────────────────── */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 8 }]}>
+              SLOT 2  ·  OEX ENGINE
             </Text>
 
-            {/* Engine list */}
+            {/* Empty state */}
             {oexEngines.length === 0 && !showOexForm && (
               <View style={[styles.emptyOex, { borderColor: colors.border, backgroundColor: colors.muted + "30" }]}>
                 <Feather name="package" size={22} color={colors.mutedForeground} style={{ marginBottom: 6 }} />
                 <Text style={[styles.emptyOexTitle, { color: colors.foreground }]}>No OEX engines added</Text>
                 <Text style={[styles.emptyOexSub, { color: colors.mutedForeground }]}>
-                  Add Stockfish or any OEX-compatible engine installed from the Play Store.
+                  Add Stockfish or any OEX-compatible engine. For live analysis, also enter its WebSocket bridge URL.
                 </Text>
                 <TouchableOpacity
                   style={[styles.playStoreLink, { borderColor: OEX_GREEN }]}
@@ -182,22 +187,29 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
               </View>
             )}
 
+            {/* Engine entries */}
             {oexEngines.map(eng => {
               const isSelected = activeOexId === eng.id;
               const isActive = activeSlot === "oex" && isSelected;
+              const isConnectedEntry = isActive && (connectionStatus === "ready" || connectionStatus === "connecting");
+              const isEditingThis = editingId === eng.id;
+
               return (
                 <View
                   key={eng.id}
                   style={[
-                    styles.oexRow,
+                    styles.oexCard,
                     {
-                      borderColor: isActive ? OEX_GREEN : colors.border,
+                      borderColor: isActive
+                        ? (connectionStatus === "ready" ? "#4caf50" : OEX_GREEN)
+                        : colors.border,
                       backgroundColor: isActive ? OEX_GREEN_BG : colors.muted + "30",
                     },
                   ]}
                 >
+                  {/* Engine header row */}
                   <TouchableOpacity
-                    style={styles.oexRowMain}
+                    style={styles.oexCardHeader}
                     onPress={() => handleSelectOex(eng.id)}
                     activeOpacity={0.75}
                   >
@@ -218,37 +230,150 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                         {eng.packageName}
                       </Text>
                     </View>
-                    {isActive && (
-                      <View style={[styles.activeBadge, { backgroundColor: OEX_GREEN }]}>
-                        <Text style={styles.activeBadgeText}>Active</Text>
+                    {isActive ? (
+                      <View style={[styles.activeBadge, { backgroundColor: connectionStatus === "ready" ? "#4caf50" : OEX_GREEN }]}>
+                        <Text style={styles.activeBadgeText}>
+                          {connectionStatus === "ready" ? "Live" : "Active"}
+                        </Text>
                       </View>
-                    )}
-                    {!isActive && (
+                    ) : (
                       <View style={[styles.selectCircle, { borderColor: isSelected ? OEX_GREEN : colors.border }]}>
                         {isSelected && <View style={[styles.selectDot, { backgroundColor: OEX_GREEN }]} />}
                       </View>
                     )}
+                    <TouchableOpacity
+                      style={styles.deleteBtn}
+                      onPress={() => removeOexEngine(eng.id)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Feather name="trash-2" size={14} color={colors.destructive} />
+                    </TouchableOpacity>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.oexDeleteBtn}
-                    onPress={() => removeOexEngine(eng.id)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Feather name="trash-2" size={14} color={colors.destructive} />
-                  </TouchableOpacity>
+
+                  {/* WebSocket section — visible when selected */}
+                  {isSelected && (
+                    <View style={[styles.wsSection, { borderTopColor: colors.border }]}>
+                      {/* WS URL display / edit */}
+                      {isEditingThis ? (
+                        <View style={styles.wsEditRow}>
+                          <TextInput
+                            style={[styles.wsInput, { color: colors.foreground, borderColor: OEX_GREEN, backgroundColor: colors.card }]}
+                            value={editWsUrl}
+                            onChangeText={setEditWsUrl}
+                            placeholder="ws://192.168.1.x:3004"
+                            placeholderTextColor={colors.mutedForeground}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            keyboardType="url"
+                            autoFocus
+                          />
+                          <TouchableOpacity
+                            style={[styles.wsActionBtn, { backgroundColor: OEX_GREEN }]}
+                            onPress={() => handleSaveWsUrl(eng.id)}
+                          >
+                            <Feather name="check" size={14} color="#fff" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.wsActionBtn, { backgroundColor: colors.muted }]}
+                            onPress={() => { setEditingId(null); setEditWsUrl(""); }}
+                          >
+                            <Feather name="x" size={14} color={colors.mutedForeground} />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <TouchableOpacity
+                          style={[styles.wsUrlRow, { borderColor: colors.border, backgroundColor: colors.card + "80" }]}
+                          onPress={() => { setEditingId(eng.id); setEditWsUrl(eng.wsUrl ?? ""); setTestResult(null); }}
+                          activeOpacity={0.7}
+                        >
+                          <Feather name="wifi" size={13} color={eng.wsUrl ? OEX_GREEN : colors.mutedForeground} />
+                          <Text
+                            style={[styles.wsUrlText, { color: eng.wsUrl ? colors.foreground : colors.mutedForeground, fontFamily: "monospace" }]}
+                            numberOfLines={1}
+                          >
+                            {eng.wsUrl || "Tap to set WebSocket bridge URL…"}
+                          </Text>
+                          <Feather name="edit-2" size={12} color={colors.mutedForeground} />
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Test + Connect row */}
+                      {eng.wsUrl && !isEditingThis && (
+                        <View style={styles.wsActionsRow}>
+                          {/* Test button */}
+                          <TouchableOpacity
+                            style={[styles.testBtn, { borderColor: colors.border }]}
+                            onPress={() => handleTest(eng.wsUrl!)}
+                            disabled={testing}
+                          >
+                            {testing
+                              ? <ActivityIndicator size="small" color={colors.primary} />
+                              : <Feather name="activity" size={13} color={colors.primary} />}
+                            <Text style={[styles.testBtnText, { color: colors.primary }]}>
+                              {testing ? "Testing…" : "Test"}
+                            </Text>
+                            {testResult === "ok" && <Feather name="check" size={12} color="#4caf50" />}
+                            {testResult === "fail" && <Feather name="x" size={12} color={colors.destructive} />}
+                          </TouchableOpacity>
+
+                          {/* Connect / Disconnect button */}
+                          <TouchableOpacity
+                            style={[
+                              styles.connectBtn,
+                              {
+                                backgroundColor:
+                                  connectionStatus === "ready" ? "#4caf50" :
+                                  connectionStatus === "connecting" ? colors.primary + "aa" :
+                                  connectionStatus === "error" ? colors.destructive :
+                                  OEX_GREEN,
+                              },
+                            ]}
+                            onPress={handleConnect}
+                            disabled={connectionStatus === "connecting"}
+                          >
+                            {connectionStatus === "connecting" ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <Feather
+                                name={connectionStatus === "ready" ? "wifi-off" : "link"}
+                                size={13}
+                                color="#fff"
+                              />
+                            )}
+                            <Text style={styles.connectBtnText}>
+                              {connectionStatus === "ready" ? "Disconnect" :
+                               connectionStatus === "connecting" ? "Connecting…" :
+                               "Connect"}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {/* Status line */}
+                      {isActive && eng.wsUrl && !isEditingThis && (
+                        <View style={styles.statusRow}>
+                          <View style={[styles.statusDot, { backgroundColor: statusColor[connectionStatus] }]} />
+                          <Text style={[styles.statusText, { color: statusColor[connectionStatus] }]}>
+                            {statusLabel[connectionStatus]}
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* No wsUrl hint */}
+                      {!eng.wsUrl && !isEditingThis && (
+                        <Text style={[styles.wsHint, { color: colors.mutedForeground }]}>
+                          Set a WebSocket URL to enable live analysis. Run{" "}
+                          <Text style={{ fontFamily: "monospace", color: colors.primary }}>
+                            npx stockfish-ws-proxy
+                          </Text>{" "}
+                          on your PC and enter its address. OEX native IPC activates in signed APK builds.
+                        </Text>
+                      )}
+                    </View>
+                  )}
                 </View>
               );
             })}
-
-            {/* OEX warning note */}
-            {oexEngines.length > 0 && (
-              <View style={[styles.oexNote, { backgroundColor: colors.muted + "30", borderColor: colors.border }]}>
-                <Feather name="info" size={12} color={colors.primary} />
-                <Text style={[styles.oexNoteText, { color: colors.mutedForeground }]}>
-                  OEX engine communication requires a signed APK build. Entries are saved and will activate automatically once the APK is installed alongside the engine app.
-                </Text>
-              </View>
-            )}
 
             {/* Add OEX engine form */}
             {showOexForm ? (
@@ -275,9 +400,20 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                   autoCorrect={false}
                 />
 
-                <Text style={[styles.oexNoteText, { color: colors.mutedForeground, marginBottom: 4 }]}>
-                  Find the package name on the Play Store URL or in your engine app's settings.
+                <Text style={[styles.configLabel, { color: colors.mutedForeground }]}>
+                  WebSocket bridge URL{" "}
+                  <Text style={{ fontWeight: "400", fontSize: 11 }}>(optional — for live analysis)</Text>
                 </Text>
+                <TextInput
+                  style={[styles.input, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card, fontFamily: "monospace", fontSize: 12 }]}
+                  value={oexWsUrl}
+                  onChangeText={setOexWsUrl}
+                  placeholder="ws://192.168.1.x:3004"
+                  placeholderTextColor={colors.mutedForeground}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
 
                 <View style={styles.oexFormActions}>
                   <TouchableOpacity
@@ -306,148 +442,7 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
               </TouchableOpacity>
             )}
 
-            {/* ── Slot 3 — External UCI via WebSocket ─────────────────── */}
-            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 4 }]}>
-              SLOT 3  ·  NETWORK ENGINE
-            </Text>
-
-            <TouchableOpacity
-              style={[
-                styles.slotCard,
-                {
-                  borderColor: activeSlot === "external"
-                    ? (connectionStatus === "ready" ? "#4caf50" : colors.primary)
-                    : colors.border,
-                  backgroundColor: activeSlot === "external" ? "#4caf5012" : colors.muted + "40",
-                },
-              ]}
-              onPress={() => setExpandedSlot(expandedSlot === "external" ? null : "external")}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.slotIcon, { backgroundColor: "#4caf5022" }]}>
-                <Feather name="wifi" size={18} color="#4caf50" />
-              </View>
-              <View style={styles.slotInfo}>
-                <Text style={[styles.slotName, { color: colors.foreground }]}>
-                  {externalConfig?.name ?? "UCI / WebSocket Engine"}
-                </Text>
-                <Text style={[styles.slotSub, { color: colors.mutedForeground }]}>
-                  Any UCI engine over Wi-Fi
-                </Text>
-              </View>
-              {activeSlot === "external" && (
-                <View style={[styles.statusDot, { backgroundColor: statusColor[connectionStatus] }]} />
-              )}
-              <Feather
-                name={expandedSlot === "external" ? "chevron-up" : "chevron-down"}
-                size={16}
-                color={colors.mutedForeground}
-                style={{ marginLeft: 6 }}
-              />
-            </TouchableOpacity>
-
-            {expandedSlot === "external" && (
-              <View style={[styles.configBox, { borderColor: colors.border, backgroundColor: colors.background }]}>
-                <Text style={[styles.configLabel, { color: colors.mutedForeground }]}>Engine name</Text>
-                <TextInput
-                  style={[styles.input, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.muted + "40" }]}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="e.g. Stockfish 17"
-                  placeholderTextColor={colors.mutedForeground}
-                />
-
-                <Text style={[styles.configLabel, { color: colors.mutedForeground }]}>WebSocket URL</Text>
-                <TextInput
-                  style={[styles.input, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.muted + "40", fontFamily: "monospace" }]}
-                  value={url}
-                  onChangeText={t => { setUrl(t); setTestResult(null); }}
-                  placeholder="ws://192.168.1.x:3004"
-                  placeholderTextColor={colors.mutedForeground}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                />
-
-                {activeSlot === "external" && (
-                  <View style={styles.statusRow}>
-                    <View style={[styles.statusDot, { backgroundColor: statusColor[connectionStatus] }]} />
-                    <Text style={[styles.statusText, { color: statusColor[connectionStatus] }]}>
-                      {statusLabel[connectionStatus]}
-                    </Text>
-                  </View>
-                )}
-
-                <View style={styles.actionRow}>
-                  <TouchableOpacity
-                    style={[styles.testBtn, { borderColor: colors.border }]}
-                    onPress={handleTest}
-                    disabled={testing || !url.trim().startsWith("ws")}
-                  >
-                    {testing
-                      ? <ActivityIndicator size="small" color={colors.primary} />
-                      : <Feather name="wifi" size={14} color={colors.primary} />}
-                    <Text style={[styles.testBtnText, { color: colors.primary }]}>
-                      {testing ? "Testing…" : "Test"}
-                    </Text>
-                    {testResult === "ok" && <Feather name="check" size={13} color="#4caf50" />}
-                    {testResult === "fail" && <Feather name="x" size={13} color={colors.destructive} />}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.saveBtn, { backgroundColor: colors.primary }]}
-                    onPress={handleSaveAndConnect}
-                  >
-                    <Feather name="link" size={14} color="#fff" />
-                    <Text style={styles.saveBtnText}>Save & Connect</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {testResult === "ok" && (
-                  <Text style={[styles.hint, { color: "#4caf50" }]}>✓ Engine responded — ready to connect!</Text>
-                )}
-                {testResult === "fail" && (
-                  <Text style={[styles.hint, { color: colors.destructive }]}>✗ Could not reach engine. Check URL and make sure both devices are on the same Wi-Fi.</Text>
-                )}
-
-                <View style={[styles.howto, { backgroundColor: colors.muted + "30", borderColor: colors.border }]}>
-                  <Text style={[styles.howtoTitle, { color: colors.foreground }]}>How to connect</Text>
-                  {[
-                    "Install Stockfish on your PC.",
-                    "Run a WebSocket bridge on your PC:",
-                    "  npx stockfish-ws-proxy --port 3004",
-                    "Your phone and PC must be on the same Wi-Fi.",
-                    "Enter your PC's IP above, e.g. ws://192.168.1.5:3004",
-                  ].map((line, i) => (
-                    <Text
-                      key={i}
-                      style={[
-                        styles.howtoLine,
-                        {
-                          color: line.trim().startsWith("npx") ? colors.primary : colors.mutedForeground,
-                          fontFamily: line.trim().startsWith("npx") ? "monospace" : undefined,
-                          fontSize: line.trim().startsWith("npx") ? 11 : 12,
-                        },
-                      ]}
-                    >
-                      {line}
-                    </Text>
-                  ))}
-                </View>
-
-                {externalConfig && (
-                  <TouchableOpacity
-                    style={[styles.removeBtn, { borderColor: colors.destructive }]}
-                    onPress={() => { removeExternalEngine(); onClose(); }}
-                  >
-                    <Feather name="trash-2" size={13} color={colors.destructive} />
-                    <Text style={[styles.removeBtnText, { color: colors.destructive }]}>Remove engine config</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-
-            <View style={{ height: 24 }} />
+            <View style={{ height: 28 }} />
           </ScrollView>
         </View>
       </View>
@@ -468,9 +463,8 @@ const styles = StyleSheet.create({
   titleLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { fontSize: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
   closeBtn: { padding: 4 },
-  sectionLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1, marginBottom: 6, marginTop: 8 },
+  sectionLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1, marginBottom: 6, marginTop: 4 },
 
-  // Generic slot card
   slotCard: {
     flexDirection: "row", alignItems: "center",
     borderWidth: 1.5, borderRadius: 14, padding: 12, marginBottom: 10, gap: 12,
@@ -481,22 +475,57 @@ const styles = StyleSheet.create({
   slotSub: { fontSize: 12, marginTop: 2 },
   activeBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   activeBadgeText: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  statusDot: { width: 10, height: 10, borderRadius: 5, marginLeft: 4 },
 
-  // OEX list items
-  oexRow: {
-    flexDirection: "row", alignItems: "center",
-    borderWidth: 1.5, borderRadius: 14, padding: 12, marginBottom: 8, gap: 8,
+  // OEX card (expandable)
+  oexCard: {
+    borderWidth: 1.5, borderRadius: 14, marginBottom: 8, overflow: "hidden",
   },
-  oexRowMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  oexCardHeader: {
+    flexDirection: "row", alignItems: "center",
+    padding: 12, gap: 10,
+  },
   oexNameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   oexBadge: { borderWidth: 1.5, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 },
   oexBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
   selectCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, justifyContent: "center", alignItems: "center" },
   selectDot: { width: 10, height: 10, borderRadius: 5 },
-  oexDeleteBtn: { padding: 6 },
+  deleteBtn: { padding: 6 },
 
-  // OEX empty state
+  // WebSocket section inside OEX card
+  wsSection: {
+    borderTopWidth: 1, paddingHorizontal: 12, paddingBottom: 12, paddingTop: 10, gap: 8,
+  },
+  wsUrlRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8,
+  },
+  wsUrlText: { flex: 1, fontSize: 12 },
+  wsEditRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  wsInput: {
+    flex: 1, borderWidth: 1.5, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8,
+    fontSize: 12, fontFamily: "monospace",
+  },
+  wsActionBtn: {
+    width: 34, height: 34, borderRadius: 8, justifyContent: "center", alignItems: "center",
+  },
+  wsActionsRow: { flexDirection: "row", gap: 8 },
+  testBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, flex: 1,
+  },
+  testBtnText: { fontSize: 12, fontWeight: "600" },
+  connectBtn: {
+    flex: 1.4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    borderRadius: 8, paddingVertical: 8,
+  },
+  connectBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { fontSize: 12, fontWeight: "600" },
+  wsHint: { fontSize: 11, lineHeight: 17 },
+
+  // Empty state
   emptyOex: {
     borderWidth: 1.5, borderRadius: 14, borderStyle: "dashed",
     padding: 20, marginBottom: 10, alignItems: "center",
@@ -509,14 +538,7 @@ const styles = StyleSheet.create({
   },
   playStoreLinkText: { fontSize: 12, fontWeight: "600" },
 
-  // OEX info note
-  oexNote: {
-    flexDirection: "row", alignItems: "flex-start", gap: 7,
-    borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 8,
-  },
-  oexNoteText: { flex: 1, fontSize: 12, lineHeight: 17 },
-
-  // Add OEX trigger button
+  // Add trigger
   addOexTrigger: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     borderWidth: 1.5, borderRadius: 12, borderStyle: "dashed",
@@ -524,44 +546,17 @@ const styles = StyleSheet.create({
   },
   addOexTriggerText: { fontSize: 13, fontWeight: "700" },
 
-  // OEX add form
-  oexForm: {
-    borderWidth: 1.5, borderRadius: 14, padding: 14, marginBottom: 10, gap: 6,
+  // Add form
+  oexForm: { borderWidth: 1.5, borderRadius: 14, padding: 14, marginBottom: 10, gap: 6 },
+  oexFormTitle: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold", marginBottom: 4 },
+  configLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.3, marginTop: 4 },
+  input: {
+    borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9,
+    fontSize: 13,
   },
-  oexFormTitle: { fontSize: 14, fontWeight: "700", marginBottom: 4 },
-  oexFormActions: { flexDirection: "row", gap: 8, marginTop: 4 },
-  cancelBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
+  oexFormActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  cancelBtn: { flex: 1, borderWidth: 1, borderRadius: 8, paddingVertical: 9, alignItems: "center" },
   cancelBtnText: { fontSize: 13, fontWeight: "600" },
-  addOexBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 6, borderRadius: 8, paddingVertical: 8,
-  },
+  addOexBtn: { flex: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 8, paddingVertical: 9 },
   addOexBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-
-  // Config box (network slot)
-  configBox: { borderWidth: 1, borderRadius: 12, padding: 14, gap: 8, marginBottom: 10 },
-  configLabel: { fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
-  input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13 },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  statusText: { fontSize: 12, fontWeight: "600" },
-  actionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
-  testBtn: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12,
-  },
-  testBtnText: { fontSize: 13, fontWeight: "600" },
-  saveBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 6, paddingVertical: 8, borderRadius: 8,
-  },
-  saveBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  hint: { fontSize: 12, lineHeight: 17 },
-  howto: { borderWidth: 1, borderRadius: 10, padding: 12, marginTop: 4, gap: 3 },
-  howtoTitle: { fontSize: 13, fontWeight: "700", marginBottom: 4 },
-  howtoLine: { lineHeight: 19 },
-  removeBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 6, paddingVertical: 9, borderRadius: 8, borderWidth: 1, marginTop: 4,
-  },
-  removeBtnText: { fontSize: 13, fontWeight: "600" },
 });
