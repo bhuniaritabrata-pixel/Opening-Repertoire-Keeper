@@ -158,22 +158,25 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
       children: [],
       parentId,
     };
+    let existingNode: MoveNode | null = null;
     function insertNode(nodes: MoveNode[]): MoveNode[] {
       if (parentId === null) {
         const existing = nodes.find(n => n.move.san === san && n.move.from === from && n.move.to === to);
-        if (existing) return nodes;
+        if (existing) { existingNode = existing; return nodes; }
         return [...nodes, newNode];
       }
       return nodes.map(n => {
         if (n.id === parentId) {
           const existing = n.children.find(c => c.move.san === san && c.move.from === from && c.move.to === to);
-          if (existing) return n;
+          if (existing) { existingNode = existing; return n; }
           return { ...n, children: [...n.children, newNode] };
         }
         return { ...n, children: insertNode(n.children) };
       });
     }
     const newTree = insertNode(opening.moveTree);
+    // If the move already existed, return it without touching storage
+    if (existingNode) return existingNode;
     saveOpenings(openings.map(o => o.id === openingId ? { ...o, moveTree: newTree, updatedAt: Date.now() } : o));
     return newNode;
   }, [openings, saveOpenings]);
