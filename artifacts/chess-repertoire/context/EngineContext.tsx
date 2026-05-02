@@ -10,9 +10,22 @@ export interface ExternalEngineConfig {
   url: string;
 }
 
+export interface OexEngineEntry {
+  id: string;
+  name: string;
+  packageName: string;
+}
+
 interface EngineContextType {
   activeSlot: EngineSlot;
   setActiveSlot: (s: EngineSlot) => void;
+  // OEX
+  oexEngines: OexEngineEntry[];
+  activeOexId: string | null;
+  addOexEngine: (name: string, packageName: string) => void;
+  removeOexEngine: (id: string) => void;
+  selectOexEngine: (id: string) => void;
+  // External / WebSocket
   externalConfig: ExternalEngineConfig | null;
   saveExternalEngine: (cfg: ExternalEngineConfig) => Promise<void>;
   removeExternalEngine: () => void;
@@ -28,11 +41,13 @@ interface EngineContextType {
 }
 
 const EngineContext = createContext<EngineContextType | null>(null);
-const STORAGE_KEY = "@chess_engine_config_v2";
+const STORAGE_KEY = "@chess_engine_config_v3";
 
 export function EngineProvider({ children }: { children: React.ReactNode }) {
   const [activeSlot, setActiveSlotState] = useState<EngineSlot>("builtin");
   const [externalConfig, setExternalConfig] = useState<ExternalEngineConfig | null>(null);
+  const [oexEngines, setOexEngines] = useState<OexEngineEntry[]>([]);
+  const [activeOexId, setActiveOexId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const engineRef = useRef<UCIEngine | null>(null);
@@ -44,29 +59,74 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
         const data = JSON.parse(raw);
         if (data.activeSlot) setActiveSlotState(data.activeSlot);
         if (data.externalConfig) setExternalConfig(data.externalConfig);
+        if (Array.isArray(data.oexEngines)) setOexEngines(data.oexEngines);
+        if (data.activeOexId) setActiveOexId(data.activeOexId);
       } catch {}
     });
   }, []);
 
-  const persist = useCallback((slot: EngineSlot, cfg: ExternalEngineConfig | null) => {
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ activeSlot: slot, externalConfig: cfg }));
+  const persist = useCallback((
+    slot: EngineSlot,
+    cfg: ExternalEngineConfig | null,
+    oex: OexEngineEntry[],
+    oexId: string | null,
+  ) => {
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
+      activeSlot: slot, externalConfig: cfg, oexEngines: oex, activeOexId: oexId,
+    }));
   }, []);
 
   const setActiveSlot = useCallback((s: EngineSlot) => {
     setActiveSlotState(s);
-    persist(s, externalConfig);
+    persist(s, externalConfig, oexEngines, activeOexId);
     if (s !== "external") {
       engineRef.current?.disconnect();
       engineRef.current = null;
       setConnectionStatus("idle");
       setConnectionError(null);
     }
-  }, [externalConfig, persist]);
+  }, [externalConfig, oexEngines, activeOexId, persist]);
 
+  // ── OEX management ────────────────────────────────────────────────────────
+  const addOexEngine = useCallback((name: string, packageName: string) => {
+    const entry: OexEngineEntry = {
+      id: Date.now().toString(),
+      name: name.trim() || packageName,
+      packageName: packageName.trim(),
+    };
+    const next = [...oexEngines, entry];
+    setOexEngines(next);
+    // Auto-select if this is the first one
+    const newActiveId = oexEngines.length === 0 ? entry.id : activeOexId;
+    setActiveOexId(newActiveId);
+    persist(activeSlot, externalConfig, next, newActiveId);
+  }, [oexEngines, activeOexId, activeSlot, externalConfig, persist]);
+
+  const removeOexEngine = useCallback((id: string) => {
+    const next = oexEngines.filter(e => e.id !== id);
+    const newActiveId = activeOexId === id
+      ? (next.length > 0 ? next[0].id : null)
+      : activeOexId;
+    setOexEngines(next);
+    setActiveOexId(newActiveId);
+    if (next.length === 0 && activeSlot === "oex") {
+      setActiveSlotState("builtin");
+      persist("builtin", externalConfig, next, null);
+    } else {
+      persist(activeSlot, externalConfig, next, newActiveId);
+    }
+  }, [oexEngines, activeOexId, activeSlot, externalConfig, persist]);
+
+  const selectOexEngine = useCallback((id: string) => {
+    setActiveOexId(id);
+    persist(activeSlot, externalConfig, oexEngines, id);
+  }, [activeSlot, externalConfig, oexEngines, persist]);
+
+  // ── External WebSocket ────────────────────────────────────────────────────
   const saveExternalEngine = useCallback(async (cfg: ExternalEngineConfig) => {
     setExternalConfig(cfg);
-    persist(activeSlot, cfg);
-  }, [activeSlot, persist]);
+    persist(activeSlot, cfg, oexEngines, activeOexId);
+  }, [activeSlot, oexEngines, activeOexId, persist]);
 
   const removeExternalEngine = useCallback(() => {
     engineRef.current?.disconnect();
@@ -75,8 +135,8 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     setActiveSlotState("builtin");
     setConnectionStatus("idle");
     setConnectionError(null);
-    persist("builtin", null);
-  }, [persist]);
+    persist("builtin", null, oexEngines, activeOexId);
+  }, [oexEngines, activeOexId, persist]);
 
   const connectEngine = useCallback(async () => {
     if (!externalConfig) return;
@@ -124,6 +184,11 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
   const value: EngineContextType = {
     activeSlot,
     setActiveSlot,
+    oexEngines,
+    activeOexId,
+    addOexEngine,
+    removeOexEngine,
+    selectOexEngine,
     externalConfig,
     saveExternalEngine,
     removeExternalEngine,
@@ -133,7 +198,6 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     disconnectEngine,
     engine: engineRef.current,
     testConnection,
-    // Legacy aliases
     engineType: activeSlot,
     setEngineType: setActiveSlot,
   };
