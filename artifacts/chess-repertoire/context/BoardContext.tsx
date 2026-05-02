@@ -46,6 +46,8 @@ interface BoardContextType {
   mateIn: number | null;
   setMateIn: (m: number | null) => void;
   annotateNode: (nodeId: string, annotation: MoveAnnotation | undefined) => void;
+  bestMoveArrow: { from: string; to: string } | null;
+  setBestMoveArrow: (arrow: { from: string; to: string } | null) => void;
   promotionSquare: string | null;
   pendingPromotion: { from: string; to: string } | null;
   confirmPromotion: (piece: string) => void;
@@ -85,6 +87,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   const [promotionSquare, setPromotionSquare] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [showBoardAnnotations, setShowBoardAnnotations] = useState(true);
+  const [bestMoveArrow, setBestMoveArrow] = useState<{ from: string; to: string } | null>(null);
 
   const toggleBoardAnnotations = useCallback(() => setShowBoardAnnotations(v => !v), []);
 
@@ -287,6 +290,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
       locked, setLocked, deleteCurrentMove,
       showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
+      bestMoveArrow, setBestMoveArrow,
     }}>
       {children}
     </BoardContext.Provider>

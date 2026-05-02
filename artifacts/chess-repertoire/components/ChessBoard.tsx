@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Svg, { Defs, Marker, Path, Polygon } from "react-native-svg";
 import { useBoard } from "@/context/BoardContext";
 import { fenToBoard, getCheckedKingSquare } from "@/utils/chess";
 import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, Piece, PieceColor } from "@/types/chess";
@@ -36,6 +37,73 @@ function squareToRC(sq: string, flipped: boolean): { row: number; col: number } 
   return { row, col };
 }
 
+// ─── Arrow helper ─────────────────────────────────────────────────────────────
+function squareCenter(sq: string, flipped: boolean): { x: number; y: number } {
+  const col = sq.charCodeAt(0) - "a".charCodeAt(0);
+  const rank = parseInt(sq[1]) - 1;
+  const row = 7 - rank;
+  const c = flipped ? 7 - col : col;
+  const r = flipped ? 7 - row : row;
+  return { x: (c + 0.5) * SQUARE_SIZE, y: (r + 0.5) * SQUARE_SIZE };
+}
+
+interface ArrowProps {
+  from: string;
+  to: string;
+  flipped: boolean;
+  color?: string;
+  opacity?: number;
+}
+
+function BestMoveArrow({ from, to, flipped, color = "#00c853", opacity = 0.82 }: ArrowProps) {
+  const a = squareCenter(from, flipped);
+  const b = squareCenter(to, flipped);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return null;
+  const ux = dx / len;
+  const uy = dy / len;
+  const arrowW = SQUARE_SIZE * 0.18;
+  const headLen = SQUARE_SIZE * 0.42;
+  const headW = SQUARE_SIZE * 0.38;
+  // Body: start slightly away from from-center, end before arrowhead
+  const x1 = a.x + ux * SQUARE_SIZE * 0.28;
+  const y1 = a.y + uy * SQUARE_SIZE * 0.28;
+  const x2 = b.x - ux * headLen;
+  const y2 = b.y - uy * headLen;
+  // Perpendicular
+  const px = -uy;
+  const py = ux;
+  // Body polygon (rect)
+  const bodyPts = [
+    `${x1 + px * arrowW},${y1 + py * arrowW}`,
+    `${x2 + px * arrowW},${y2 + py * arrowW}`,
+    `${x2 - px * arrowW},${y2 - py * arrowW}`,
+    `${x1 - px * arrowW},${y1 - py * arrowW}`,
+  ].join(" ");
+  // Arrowhead polygon
+  const tipX = b.x;
+  const tipY = b.y;
+  const headPts = [
+    `${tipX},${tipY}`,
+    `${x2 + px * headW},${y2 + py * headW}`,
+    `${x2 - px * headW},${y2 - py * headW}`,
+  ].join(" ");
+
+  return (
+    <Svg
+      width={BOARD_SIZE}
+      height={BOARD_SIZE}
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+    >
+      <Polygon points={bodyPts} fill={color} fillOpacity={opacity} />
+      <Polygon points={headPts} fill={color} fillOpacity={opacity} />
+    </Svg>
+  );
+}
+
 export default function ChessBoard() {
   const {
     fen,
@@ -51,6 +119,7 @@ export default function ChessBoard() {
     cancelPromotion,
     currentPath,
     squareAnnotations,
+    bestMoveArrow,
   } = useBoard();
 
   const board = useMemo(() => fenToBoard(fen), [fen]);
@@ -232,6 +301,15 @@ export default function ChessBoard() {
             })}
           </View>
         ))}
+
+        {/* Best move arrow — drawn above pieces, below animation */}
+        {bestMoveArrow && (
+          <BestMoveArrow
+            from={bestMoveArrow.from}
+            to={bestMoveArrow.to}
+            flipped={flipped}
+          />
+        )}
 
         {/* Animated piece overlay */}
         {animPiece && (

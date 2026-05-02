@@ -94,6 +94,7 @@ export default function AnalysisPanel() {
     evalDepth, setEvalDepth,
     mateIn, setMateIn,
     fen, currentPath, currentNodeId, annotateNode,
+    setBestMoveArrow,
   } = useBoard();
 
   const {
@@ -109,8 +110,6 @@ export default function AnalysisPanel() {
 
   // Tracks the FINAL eval of the last completed position search (always white's perspective)
   const completedEvalRef = useRef<{ score: number; fen: string } | null>(null);
-  // Whether we've already annotated the current node (to avoid re-annotating on depth bumps)
-  const annotatedNodeRef = useRef<string | null>(null);
 
   // Auto-connect external engine
   useEffect(() => {
@@ -130,8 +129,16 @@ export default function AnalysisPanel() {
       setBestMoves([]);
       setIsAnalyzing(false);
       setCurrentDepth(0);
+      setBestMoveArrow(null);
       return;
     }
+
+    // Helper: parse UCI move string "e2e4" → arrow { from, to }
+    const parseArrow = (uci: string) =>
+      uci.length >= 4 ? { from: uci.slice(0, 2), to: uci.slice(2, 4) } : null;
+
+    // Clear arrow for new position
+    setBestMoveArrow(null);
 
     // ── External UCI engine ───────────────────────────────────────────────
     if (activeSlot === "external" && engine?.isReady()) {
@@ -142,20 +149,22 @@ export default function AnalysisPanel() {
         else { setEvaluation(score); setMateIn(null); }
         setCurrentDepth(result.depth);
 
+        // Arrow for best move
         if (result.pv.length > 0) {
           const evalStr = result.mate !== null
             ? `M${Math.abs(result.mate)}`
             : `${score >= 0 ? "+" : ""}${(score / 100).toFixed(2)}`;
           setBestMoves([`${evalStr}  ${result.pv.slice(0, 4).join(" ")}`]);
+          const arrow = parseArrow(result.pv[0]);
+          if (arrow) setBestMoveArrow(arrow);
         }
 
-        // Annotate on first result for this node
-        if (currentNodeId && annotatedNodeRef.current !== currentNodeId) {
+        // Annotate / update badge at every depth result
+        if (currentNodeId) {
           const prev = completedEvalRef.current;
           if (prev && prev.fen !== fen) {
             const cpl = computeCPL(prev.score, score, fen);
             annotateNode(currentNodeId, classifyCPL(cpl));
-            annotatedNodeRef.current = currentNodeId;
           }
           completedEvalRef.current = { score, fen };
         }
@@ -180,19 +189,20 @@ export default function AnalysisPanel() {
         : `${score >= 0 ? "+" : ""}${(score / 100).toFixed(2)}`;
       setBestMoves([`${evalStr}  Best: ${result.bestMove}  (d${result.depth})`]);
 
-      // Annotate once per node when we reach a reliable depth (≥ 3)
-      if (currentNodeId
-          && result.depth >= Math.min(evalDepth, 3)
-          && annotatedNodeRef.current !== currentNodeId) {
+      // Arrow: update at every depth so it gets more accurate as search deepens
+      const arrow = parseArrow(result.bestMove);
+      if (arrow) setBestMoveArrow(arrow);
+
+      // Badge: update at every depth ≥ 3 so it refines as engine thinks deeper
+      if (currentNodeId && result.depth >= Math.min(evalDepth, 3)) {
         const prev = completedEvalRef.current;
         if (prev && prev.fen !== fen) {
           const cpl = computeCPL(prev.score, score, fen);
           annotateNode(currentNodeId, classifyCPL(cpl));
-          annotatedNodeRef.current = currentNodeId;
         }
       }
 
-      // When search is fully complete, record this as the reference eval
+      // When fully complete, record as reference eval for the next move comparison
       if (result.depth >= evalDepth) {
         completedEvalRef.current = { score, fen };
         setIsAnalyzing(false);
@@ -200,7 +210,7 @@ export default function AnalysisPanel() {
     });
 
     cancelRef.current = cancel;
-    return () => { cancel(); cancelRef.current = null; };
+    return () => { cancel(); cancelRef.current = null; setBestMoveArrow(null); };
   }, [fen, analysisEnabled, evalDepth, activeSlot, connectionStatus]);
 
   // ─── Derived display values ────────────────────────────────────────────────
