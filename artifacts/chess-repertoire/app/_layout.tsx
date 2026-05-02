@@ -12,7 +12,6 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { EngineProvider } from "@/context/EngineContext";
 import { RepertoireProvider } from "@/context/RepertoireContext";
 
 SplashScreen.preventAutoHideAsync();
@@ -46,11 +45,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <RepertoireProvider>
-          <EngineProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <RootLayoutNav />
-            </GestureHandlerRootView>
-          </EngineProvider>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <RootLayoutNav />
+          </GestureHandlerRootView>
         </RepertoireProvider>
       </ErrorBoundary>
     </SafeAreaProvider>

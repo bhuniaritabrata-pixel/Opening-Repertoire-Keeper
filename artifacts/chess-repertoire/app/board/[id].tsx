@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   Alert,
   Platform,
@@ -12,12 +12,10 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import AnalysisPanel from "@/components/AnalysisPanel";
 import AnnotationPicker from "@/components/AnnotationPicker";
 import BoardControls from "@/components/BoardControls";
 import BoardThemePanel from "@/components/BoardThemePanel";
 import ChessBoard from "@/components/ChessBoard";
-import EvalBar from "@/components/EvalBar";
 import MoveTree from "@/components/MoveTree";
 import PgnImport from "@/components/PgnImport";
 import { BoardProvider, useBoard } from "@/context/BoardContext";
@@ -29,12 +27,11 @@ function BoardScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { openings, importPgn, updateOpening } = useRepertoire();
-  const { currentNodeId, annotateNode, currentPath, analysisEnabled, setAnalysisEnabled, deleteCurrentMove } = useBoard();
+  const { openings, importPgn } = useRepertoire();
+  const { currentNodeId, annotateNode, currentPath, deleteCurrentMove } = useBoard();
   const [showTheme, setShowTheme] = useState(false);
   const [showPgn, setShowPgn] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(false);
-  const [activeTab, setActiveTab] = useState<"moves" | "analysis">("moves");
 
   const opening = openings.find(o => o.id === id);
 
@@ -116,59 +113,29 @@ function BoardScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 20 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Board + Eval Bar */}
-        <View style={styles.boardRow}>
-          <EvalBar />
-          <ChessBoard />
-        </View>
-
-        {/* Board Controls */}
+        <ChessBoard />
         <BoardControls />
 
-        {/* Tab selector */}
-        <View style={[styles.tabs, { backgroundColor: colors.muted, marginTop: 12 }]}>
-          {(["moves", "analysis"] as const).map(tab => (
-            <TouchableOpacity
-              key={tab}
-              style={[styles.tab, activeTab === tab && { backgroundColor: colors.card }]}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Feather
-                name={tab === "moves" ? "list" : "cpu"}
-                size={14}
-                color={activeTab === tab ? colors.primary : colors.mutedForeground}
+        <View style={[styles.movesPanel, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <MoveTree opening={opening} />
+          {currentNodeId && (
+            <View style={[styles.annotationContainer, { borderTopColor: colors.border }]}>
+              <AnnotationPicker
+                currentAnnotation={currentAnnotation}
+                onSelect={handleAnnotate}
               />
-              <Text style={[styles.tabText, { color: activeTab === tab ? colors.foreground : colors.mutedForeground }]}>
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
+              <TouchableOpacity
+                style={[styles.deleteMoveBtn, { borderColor: colors.destructive }]}
+                onPress={handleDeleteMove}
+              >
+                <Feather name="trash-2" size={14} color={colors.destructive} />
+                <Text style={[styles.deleteMoveText, { color: colors.destructive }]}>
+                  Delete this move
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
-
-        {activeTab === "moves" ? (
-          <View style={[styles.movesPanel, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <MoveTree opening={opening} />
-            {currentNodeId && (
-              <View style={[styles.annotationContainer, { borderTopColor: colors.border }]}>
-                <AnnotationPicker
-                  currentAnnotation={currentAnnotation}
-                  onSelect={handleAnnotate}
-                />
-                <TouchableOpacity
-                  style={[styles.deleteMoveBtn, { borderColor: colors.destructive }]}
-                  onPress={handleDeleteMove}
-                >
-                  <Feather name="trash-2" size={14} color={colors.destructive} />
-                  <Text style={[styles.deleteMoveText, { color: colors.destructive }]}>
-                    Delete this move
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        ) : (
-          <AnalysisPanel />
-        )}
       </ScrollView>
 
       <BoardThemePanel visible={showTheme} onClose={() => setShowTheme(false)} />
@@ -238,30 +205,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 12,
     alignItems: "center",
-  },
-  boardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  tabs: {
-    flexDirection: "row",
-    borderRadius: 10,
-    padding: 3,
-    alignSelf: "stretch",
-  },
-  tab: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  tabText: {
-    fontSize: 13,
-    fontWeight: "600",
-    fontFamily: "Inter_600SemiBold",
   },
   movesPanel: {
     borderRadius: 12,

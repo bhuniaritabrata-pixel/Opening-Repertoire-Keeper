@@ -36,19 +36,7 @@ interface BoardContextType {
   goForward: (childIndex?: number) => void;
   goToStart: () => void;
   goToEnd: () => void;
-  analysisEnabled: boolean;
-  setAnalysisEnabled: (e: boolean) => void;
-  evaluation: number | null;
-  setEvaluation: (e: number | null) => void;
-  bestMoves: string[];
-  setBestMoves: (m: string[]) => void;
-  evalDepth: number;
-  setEvalDepth: (d: number) => void;
-  mateIn: number | null;
-  setMateIn: (m: number | null) => void;
   annotateNode: (nodeId: string, annotation: MoveAnnotation | undefined) => void;
-  bestMoveArrow: { from: string; to: string } | null;
-  setBestMoveArrow: (arrow: { from: string; to: string } | null) => void;
   promotionSquare: string | null;
   pendingPromotion: { from: string; to: string } | null;
   confirmPromotion: (piece: string) => void;
@@ -79,16 +67,10 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   const [customDark, setCustomDark] = useState("#b58863");
   const [currentPath, setCurrentPath] = useState<MoveNode[]>([]);
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
-  const [analysisEnabled, setAnalysisEnabled] = useState(false);
-  const [evaluation, setEvaluation] = useState<number | null>(null);
-  const [bestMoves, setBestMoves] = useState<string[]>([]);
-  const [evalDepth, setEvalDepth] = useState(5);
-  const [mateIn, setMateIn] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
   const [promotionSquare, setPromotionSquare] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [showBoardAnnotations, setShowBoardAnnotations] = useState(true);
-  const [bestMoveArrow, setBestMoveArrow] = useState<{ from: string; to: string } | null>(null);
 
   // O(1) lookup set — derived from legalMoves array, recomputed only when legalMoves changes
   const legalMovesSet = useMemo(() => new Set(legalMoves), [legalMoves]);
@@ -293,23 +275,17 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     customLight, customDark, setCustomLight, setCustomDark,
     handleSquarePress, currentPath, currentNodeId,
     goToMove, goBack, goForward, goToStart, goToEnd,
-    analysisEnabled, setAnalysisEnabled,
-    evaluation, setEvaluation, bestMoves, setBestMoves,
-    evalDepth, setEvalDepth, mateIn, setMateIn,
     annotateNode,
     promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
     locked, setLocked, deleteCurrentMove,
     showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
-    bestMoveArrow, setBestMoveArrow,
   }), [
     fen, flipped, selectedSquare, legalMoves, legalMovesSet,
     boardTheme, customLight, customDark,
     handleSquarePress, currentPath, currentNodeId,
     goToMove, goBack, goForward, goToStart, goToEnd,
-    analysisEnabled, evaluation, bestMoves, evalDepth, mateIn,
     annotateNode, promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
     locked, deleteCurrentMove, showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
-    bestMoveArrow,
   ]);
 
   return (

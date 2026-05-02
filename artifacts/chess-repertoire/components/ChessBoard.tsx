@@ -145,7 +145,7 @@ export default function ChessBoard() {
     fen, flipped, selectedSquare, legalMovesSet,
     boardTheme, customLight, customDark,
     handleSquarePress, pendingPromotion, confirmPromotion, cancelPromotion,
-    currentPath, squareAnnotations, bestMoveArrow,
+    currentPath, squareAnnotations,
   } = useBoard();
 
   const board = useMemo(() => fenToBoard(fen), [fen]);
@@ -279,10 +279,6 @@ export default function ChessBoard() {
             ))}
           </View>
         ))}
-
-        {bestMoveArrow && (
-          <BestMoveArrow from={bestMoveArrow.from} to={bestMoveArrow.to} flipped={flipped} />
-        )}
 
         {animPiece && (
           <Animated.View

@@ -36,7 +36,6 @@ minimumReleaseAgeExclude:
 
 packages:
   - artifacts/*
-  - artifacts/chess-repertoire/modules/*
   - lib/*
   - lib/integrations/*
   - scripts
