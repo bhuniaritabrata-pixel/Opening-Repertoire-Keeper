@@ -417,27 +417,12 @@ export default function RepertoireListScreen() {
               ))}
             </View>
             {/* Add button */}
-            <View>
-              <TouchableOpacity
-                style={[styles.addBtn, { backgroundColor: colors.primary }]}
-                onPress={() => setShowAddSubMenu(v => !v)}
-              >
-                <Feather name="plus" size={20} color={colors.primaryForeground} />
-              </TouchableOpacity>
-              {showAddSubMenu && (
-                <View style={[styles.addSubMenu, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <TouchableOpacity style={styles.addSubItem} onPress={() => { setShowAddSubMenu(false); setNewName(""); setShowAddModal("opening"); }}>
-                    <Feather name="book-open" size={16} color={colors.foreground} />
-                    <Text style={[styles.addSubLabel, { color: colors.foreground }]}>New Opening</Text>
-                  </TouchableOpacity>
-                  <View style={[styles.addSubDivider, { backgroundColor: colors.border }]} />
-                  <TouchableOpacity style={styles.addSubItem} onPress={() => { setShowAddSubMenu(false); setNewName(""); setShowAddModal("folder"); }}>
-                    <Feather name="folder-plus" size={16} color={colors.foreground} />
-                    <Text style={[styles.addSubLabel, { color: colors.foreground }]}>New Folder</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
+            <TouchableOpacity
+              style={[styles.addBtn, { backgroundColor: colors.primary }]}
+              onPress={() => setShowAddSubMenu(true)}
+            >
+              <Feather name="plus" size={20} color={colors.primaryForeground} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -496,12 +481,34 @@ export default function RepertoireListScreen() {
         </ScrollView>
       )}
 
-      {/* Dismiss add sub-menu backdrop */}
-      {showAddSubMenu && (
+      {/* Add sub-menu as Modal so it always renders on top */}
+      <Modal visible={showAddSubMenu} animationType="fade" transparent onRequestClose={() => setShowAddSubMenu(false)}>
         <TouchableWithoutFeedback onPress={() => setShowAddSubMenu(false)}>
-          <View style={StyleSheet.absoluteFill} />
+          <View style={styles.contextOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.contextSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.contextTitle, { color: colors.foreground }]}>Add New</Text>
+                <View style={[styles.contextDivider, { backgroundColor: colors.border }]} />
+                <TouchableOpacity
+                  style={styles.contextItem}
+                  onPress={() => { setShowAddSubMenu(false); setNewName(""); setShowAddModal("opening"); }}
+                >
+                  <Feather name="book-open" size={18} color={colors.foreground} />
+                  <Text style={[styles.contextLabel, { color: colors.foreground }]}>New Opening</Text>
+                </TouchableOpacity>
+                <View style={[styles.contextDivider, { backgroundColor: colors.border }]} />
+                <TouchableOpacity
+                  style={styles.contextItem}
+                  onPress={() => { setShowAddSubMenu(false); setNewName(""); setShowAddModal("folder"); }}
+                >
+                  <Feather name="folder-plus" size={18} color={colors.foreground} />
+                  <Text style={[styles.contextLabel, { color: colors.foreground }]}>New Folder</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
         </TouchableWithoutFeedback>
-      )}
+      </Modal>
 
       {/* Add Modal */}
       <Modal visible={showAddModal !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowAddModal(null)}>
