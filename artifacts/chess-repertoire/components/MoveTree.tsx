@@ -1,6 +1,6 @@
 import React, { useCallback } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, MoveNode, Opening } from "@/types/chess";
+import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, MoveNode, Opening, STARTING_FEN } from "@/types/chess";
 import { useBoard } from "@/context/BoardContext";
 import { useColors } from "@/hooks/useColors";
 
@@ -8,130 +8,139 @@ interface MoveTreeProps {
   opening: Opening;
 }
 
-interface NodeProps {
-  node: MoveNode;
-  depth: number;
-  path: MoveNode[];
-  isVariation: boolean;
-}
-
 export default function MoveTree({ opening }: MoveTreeProps) {
   const colors = useColors();
   const { currentNodeId, goToMove } = useBoard();
 
-  const renderNode = useCallback(({ node, depth, path, isVariation }: NodeProps) => {
-    const isCurrent = node.id === currentNodeId;
-    const annotation = node.move.annotation;
-    const annotationSymbol = annotation ? ANNOTATION_SYMBOLS[annotation] : "";
-    const annotationColor = annotation ? ANNOTATION_COLORS[annotation] : undefined;
+  const renderMoveList = useCallback(() => {
+    let keyCounter = 0;
+    const k = () => `mk-${keyCounter++}`;
+    const els: React.ReactNode[] = [];
 
-    return (
-      <View key={node.id}>
+    /**
+     * Recursively walk a single node and its subtree, pushing inline elements
+     * into `els`.
+     *
+     * @param node        The current move node
+     * @param moveNum     The full-move number (increments after Black's move)
+     * @param isBlack     True when this node is a Black move
+     * @param ancestors   All nodes from root up to (but not including) this node
+     * @param showNum     Force-show the move number even for a Black move
+     *                    (needed at the start of a variation or after one closes)
+     * @param isNested    True when we are inside a variation (affects text style)
+     */
+    function walk(
+      node: MoveNode,
+      moveNum: number,
+      isBlack: boolean,
+      ancestors: MoveNode[],
+      showNum: boolean,
+      isNested: boolean,
+    ) {
+      const isCurrent = node.id === currentNodeId;
+      const ann = node.move.annotation;
+      const annSymbol = ann ? ANNOTATION_SYMBOLS[ann] : "";
+      const annColor = ann ? ANNOTATION_COLORS[ann] : undefined;
+
+      // ── Move number ──────────────────────────────────────────────────────
+      if (!isBlack) {
+        els.push(
+          <Text key={k()} style={[styles.moveNumber, { color: colors.mutedForeground }]}>
+            {moveNum}.
+          </Text>,
+        );
+      } else if (showNum) {
+        // Black's move but we need to re-establish context (e.g. after a variation)
+        els.push(
+          <Text key={k()} style={[styles.moveNumber, { color: colors.mutedForeground }]}>
+            {moveNum}…
+          </Text>,
+        );
+      }
+
+      // ── Move token ───────────────────────────────────────────────────────
+      els.push(
         <TouchableOpacity
+          key={node.id}
+          onPress={() => goToMove(node, [...ancestors, node])}
           style={[
-            styles.moveBtn,
-            isCurrent && { backgroundColor: colors.primary + "33" },
-            isVariation && { marginLeft: depth * 12 },
+            styles.inlineMove,
+            isCurrent && { backgroundColor: colors.primary + "33", borderRadius: 4 },
           ]}
-          onPress={() => goToMove(node, path)}
         >
-          <Text style={[
-            styles.moveText,
-            { color: isCurrent ? colors.primary : colors.foreground },
-            isVariation && styles.variationText,
-          ]}>
+          <Text
+            style={[
+              styles.moveText,
+              {
+                color: isCurrent
+                  ? colors.primary
+                  : isNested
+                    ? colors.mutedForeground
+                    : colors.foreground,
+              },
+              isNested && styles.variationText,
+            ]}
+          >
             {node.move.san}
+            {annSymbol ? (
+              <Text style={{ color: annColor, fontWeight: "700" }}>{annSymbol}</Text>
+            ) : null}
           </Text>
-          {annotationSymbol ? (
-            <Text style={[styles.annotation, { color: annotationColor }]}>
-              {annotationSymbol}
-            </Text>
-          ) : null}
-        </TouchableOpacity>
+        </TouchableOpacity>,
+      );
 
-        {node.children.length > 0 && (
-          <View style={node.children.length > 1 ? styles.branchContainer : undefined}>
-            {node.children.map((child, idx) => (
-              renderNode({
-                node: child,
-                depth: depth + (idx > 0 ? 1 : 0),
-                path: [...path, child],
-                isVariation: idx > 0,
-              })
-            ))}
-          </View>
-        )}
-      </View>
-    );
-  }, [currentNodeId, goToMove, colors]);
+      // Context for children
+      const nextIsBlack = !isBlack;
+      const nextMoveNum = isBlack ? moveNum + 1 : moveNum;
+      const hasVariations = node.children.length > 1;
+      const newAncestors = [...ancestors, node];
 
-  // Render main line and variations in a flow layout
-  const renderMoveList = () => {
-    const elements: React.ReactNode[] = [];
-    let moveNum = 1;
+      // ── Inline variations (children[1..]) ────────────────────────────────
+      // Each variation is wrapped in ( … ) and rendered inline with correct numbering.
+      for (let v = 1; v < node.children.length; v++) {
+        const varChild = node.children[v];
+        els.push(
+          <Text key={k()} style={[styles.varParen, { color: colors.mutedForeground }]}>
+            {" ("}
+          </Text>,
+        );
+        // The variation starts at the same point as the main continuation,
+        // so always show the move number (showNum=true) since we're resuming mid-game.
+        walk(varChild, nextMoveNum, nextIsBlack, newAncestors, true, true);
+        els.push(
+          <Text key={k()} style={[styles.varParen, { color: colors.mutedForeground }]}>
+            {")" }
+          </Text>,
+        );
+      }
 
-    function traverse(nodes: MoveNode[], depth: number, path: MoveNode[], isBlackNext: boolean) {
-      for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i];
-        const isCurrent = node.id === currentNodeId;
-        const annotation = node.move.annotation;
-        const annotationSymbol = annotation ? ANNOTATION_SYMBOLS[annotation] : "";
-        const annotationColor = annotation ? ANNOTATION_COLORS[annotation] : undefined;
-
-        const isWhiteMove = !isBlackNext;
-
-        if (depth === 0) {
-          // Main line - inline flow
-          if (isWhiteMove) {
-            elements.push(
-              <Text key={`num-${node.id}`} style={[styles.moveNumber, { color: colors.mutedForeground }]}>
-                {moveNum}.
-              </Text>
-            );
-          }
-
-          elements.push(
-            <TouchableOpacity
-              key={node.id}
-              onPress={() => goToMove(node, path.concat(node))}
-              style={[styles.inlineMove, isCurrent && { backgroundColor: colors.primary + "22", borderRadius: 4 }]}
-            >
-              <Text style={[
-                styles.moveText,
-                { color: isCurrent ? colors.primary : colors.foreground },
-              ]}>
-                {node.move.san}
-                {annotationSymbol ? (
-                  <Text style={{ color: annotationColor, fontWeight: "700" }}>{annotationSymbol}</Text>
-                ) : null}
-              </Text>
-            </TouchableOpacity>
-          );
-
-          if (!isWhiteMove) moveNum++;
-
-          // Render first child in main line (variation 0)
-          if (node.children.length > 0) {
-            // Render variations (idx > 0) as sub-blocks
-            for (let v = 1; v < node.children.length; v++) {
-              const varChild = node.children[v];
-              elements.push(
-                <View key={`var-${varChild.id}`} style={[styles.variationBlock, { borderLeftColor: colors.border }]}>
-                  <Text style={[styles.varLabel, { color: colors.mutedForeground }]}>Variation:</Text>
-                  {renderNode({ node: varChild, depth: 1, path: path.concat(node, varChild), isVariation: true })}
-                </View>
-              );
-            }
-
-            traverse([node.children[0]], depth, path.concat(node), !isBlackNext);
-          }
-        }
+      // ── Main-line continuation ────────────────────────────────────────────
+      if (node.children.length > 0) {
+        walk(
+          node.children[0],
+          nextMoveNum,
+          nextIsBlack,
+          newAncestors,
+          // After showing a variation we need to re-print the move number
+          // for the main-line move so the reader knows where we are.
+          hasVariations,
+          isNested,
+        );
       }
     }
 
-    traverse(opening.moveTree, 0, [], false);
-    return elements;
-  };
+    // Determine starting move number and colour from the root FEN
+    const fenParts = (opening.rootFen || STARTING_FEN).split(" ");
+    const startMoveNum = parseInt(fenParts[5] || "1", 10);
+    const startIsBlack = fenParts[1] === "b";
+
+    for (const rootNode of opening.moveTree) {
+      // Always show the number for the very first move
+      walk(rootNode, startMoveNum, startIsBlack, [], true, false);
+    }
+
+    return els;
+  }, [currentNodeId, goToMove, colors, opening]);
 
   if (opening.moveTree.length === 0) {
     return (
@@ -168,7 +177,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 2,
+    rowGap: 4,
   },
   moveNumber: {
     fontSize: 13,
@@ -179,41 +188,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 3,
   },
-  moveBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
-    marginRight: 2,
-  },
   moveText: {
     fontSize: 14,
     fontWeight: "500",
-    fontFamily: "Inter_500Medium",
   },
   variationText: {
     fontStyle: "italic",
     fontSize: 13,
   },
-  annotation: {
-    fontSize: 12,
-    fontWeight: "700",
-    marginLeft: 1,
-  },
-  branchContainer: {
-    marginTop: 2,
-  },
-  variationBlock: {
-    marginVertical: 4,
-    paddingLeft: 10,
-    borderLeftWidth: 2,
-    width: "100%",
-  },
-  varLabel: {
-    fontSize: 11,
-    fontStyle: "italic",
-    marginBottom: 2,
+  varParen: {
+    fontSize: 13,
+    fontWeight: "600",
   },
   empty: {
     padding: 20,
