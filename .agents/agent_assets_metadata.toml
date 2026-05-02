@@ -11,3 +11,9 @@ id = "T1f3YViDGiIPTF4buzLeZ"
 uri = "file://attached_assets/expo_qr.png"
 type = "image"
 title = "Expo Go QR Code"
+
+[[outputs]]
+id = "dkDtiuOL2QOFKzOlWYY7q"
+uri = "file://artifacts/chess-repertoire/expo-qr.png"
+type = "image"
+title = "Scan with Expo Go"
