@@ -1,7 +1,17 @@
-import React, { createContext, useCallback, useContext, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { BoardTheme, BOARD_THEMES, MoveAnnotation, MoveNode, Opening, STARTING_FEN } from "@/types/chess";
 import { applyMove, getLegalMoves } from "@/utils/chess";
 import { useRepertoire } from "@/context/RepertoireContext";
+
+function findNodeById(nodes: MoveNode[], id: string | null): MoveNode | null {
+  if (!id) return null;
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    const found = findNodeById(n.children, id);
+    if (found) return found;
+  }
+  return null;
+}
 
 interface BoardContextType {
   fen: string;
@@ -43,6 +53,9 @@ interface BoardContextType {
   locked: boolean;
   setLocked: (l: boolean) => void;
   deleteCurrentMove: () => void;
+  showBoardAnnotations: boolean;
+  toggleBoardAnnotations: () => void;
+  squareAnnotations: Record<string, { annotation: MoveAnnotation; from: string }>;
 }
 
 const BoardContext = createContext<BoardContextType | null>(null);
@@ -71,6 +84,24 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
   const [promotionSquare, setPromotionSquare] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
+  const [showBoardAnnotations, setShowBoardAnnotations] = useState(true);
+
+  const toggleBoardAnnotations = useCallback(() => setShowBoardAnnotations(v => !v), []);
+
+  // Build a map of destination square → annotation for all annotated children of the current node
+  const squareAnnotations = useMemo<Record<string, { annotation: MoveAnnotation; from: string }>>(() => {
+    if (!showBoardAnnotations || !opening) return {};
+    const children = currentNodeId === null
+      ? opening.moveTree
+      : (findNodeById(opening.moveTree, currentNodeId)?.children ?? []);
+    const result: Record<string, { annotation: MoveAnnotation; from: string }> = {};
+    for (const child of children) {
+      if (child.move.annotation) {
+        result[child.move.to] = { annotation: child.move.annotation, from: child.move.from };
+      }
+    }
+    return result;
+  }, [opening, currentNodeId, showBoardAnnotations]);
 
   const handleSquarePress = useCallback((sq: string) => {
     if (pendingPromotion) return;
@@ -173,17 +204,6 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   }, [currentPath, opening]);
 
   const goForward = useCallback((childIndex = 0) => {
-    // Find current node's children
-    const findNode = (nodes: MoveNode[], id: string | null): MoveNode | null => {
-      if (!id) return null;
-      for (const n of nodes) {
-        if (n.id === id) return n;
-        const found = findNode(n.children, id);
-        if (found) return found;
-      }
-      return null;
-    };
-
     if (!opening) return;
 
     if (currentNodeId === null) {
@@ -196,7 +216,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       return;
     }
 
-    const currentNode = findNode(opening.moveTree, currentNodeId);
+    const currentNode = findNodeById(opening.moveTree, currentNodeId);
     if (currentNode && currentNode.children.length > 0) {
       const child = currentNode.children[childIndex] || currentNode.children[0];
       setCurrentPath([...currentPath, child]);
@@ -271,6 +291,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       annotateNode,
       promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
       locked, setLocked, deleteCurrentMove,
+      showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
     }}>
       {children}
     </BoardContext.Provider>

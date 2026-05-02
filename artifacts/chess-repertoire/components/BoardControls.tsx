@@ -7,7 +7,7 @@ import { useColors } from "@/hooks/useColors";
 
 export default function BoardControls() {
   const colors = useColors();
-  const { goBack, goForward, goToStart, goToEnd, flipped, setFlipped, currentPath, locked, setLocked } = useBoard();
+  const { goBack, goForward, goToStart, goToEnd, flipped, setFlipped, currentPath, locked, setLocked, showBoardAnnotations, toggleBoardAnnotations } = useBoard();
 
   const handlePress = (fn: () => void) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -59,6 +59,24 @@ export default function BoardControls() {
         }}
       >
         <Feather name="refresh-cw" size={20} color={colors.accent} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
+          styles.btn,
+          !showBoardAnnotations && { backgroundColor: colors.muted + "44" },
+        ]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          toggleBoardAnnotations();
+        }}
+        accessibilityLabel={showBoardAnnotations ? "Hide board annotations" : "Show board annotations"}
+      >
+        <Feather
+          name={showBoardAnnotations ? "eye" : "eye-off"}
+          size={20}
+          color={showBoardAnnotations ? colors.primary : colors.mutedForeground}
+        />
       </TouchableOpacity>
 
       <TouchableOpacity

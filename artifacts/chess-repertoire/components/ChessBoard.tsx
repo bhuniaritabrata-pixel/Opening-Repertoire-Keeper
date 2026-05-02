@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { useBoard } from "@/context/BoardContext";
 import { fenToBoard, getCheckedKingSquare } from "@/utils/chess";
-import { Piece, PieceColor } from "@/types/chess";
+import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, Piece, PieceColor } from "@/types/chess";
 import ChessPiece from "@/components/ChessPiece";
 import PromotionPicker from "@/components/PromotionPicker";
 
@@ -50,6 +50,7 @@ export default function ChessBoard() {
     confirmPromotion,
     cancelPromotion,
     currentPath,
+    squareAnnotations,
   } = useBoard();
 
   const board = useMemo(() => fenToBoard(fen), [fen]);
@@ -187,6 +188,16 @@ export default function ChessBoard() {
               // Hide piece at from-square while animating
               const isAnimatingFrom = animPiece?.fromSq === sq;
 
+              // Annotation info for this square
+              const annOnDest = squareAnnotations[sq];
+              const annFromEntry = Object.values(squareAnnotations).find(a => a.from === sq);
+              const isAnnFrom = !!annFromEntry && !annOnDest;
+              const annColor: string | undefined = annOnDest
+                ? ANNOTATION_COLORS[annOnDest.annotation]
+                : annFromEntry
+                  ? ANNOTATION_COLORS[annFromEntry.annotation]
+                  : undefined;
+
               return (
                 <TouchableOpacity
                   key={col}
@@ -201,6 +212,14 @@ export default function ChessBoard() {
                   {overlay && (
                     <View style={[StyleSheet.absoluteFill, { backgroundColor: overlay }]} />
                   )}
+                  {/* Annotation destination tint */}
+                  {annOnDest && !overlay && (
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: annColor + "55" }]} />
+                  )}
+                  {/* Annotation source tint (lighter) */}
+                  {isAnnFrom && !annOnDest && !overlay && (
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: annColor + "28" }]} />
+                  )}
                   {isLegalDot && (
                     <View style={styles.legalDot} />
                   )}
@@ -212,6 +231,16 @@ export default function ChessBoard() {
                   )}
                   {col === 0 && renderRankLabel(row)}
                   {row === 7 && renderFileLabel(col)}
+                  {/* Annotation badge — bottom-right corner of destination square */}
+                  {annOnDest && (
+                    <View style={[styles.annBadge, { backgroundColor: annColor }]}>
+                      <Text style={styles.annBadgeText}>
+                        {annOnDest.annotation === "book"
+                          ? "B"
+                          : ANNOTATION_SYMBOLS[annOnDest.annotation]}
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -269,5 +298,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 100,
+  },
+  annBadge: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 2,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  annBadgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "900",
+    lineHeight: 11,
   },
 });
