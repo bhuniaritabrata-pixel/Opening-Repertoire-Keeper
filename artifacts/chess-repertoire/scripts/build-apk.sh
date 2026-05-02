@@ -25,7 +25,20 @@ mkdir -p "$BUILD_DIR"
 # Symlink node_modules
 ln -s "$SRC_DIR/node_modules" "$BUILD_DIR/node_modules"
 
-echo "2. Setting up fake git (bypasses Replit git restrictions)..."
+echo "2. Patching package.json for EAS (workspace:* → file:./modules/oex-engine)..."
+node -e "
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('$BUILD_DIR/package.json', 'utf8'));
+if (pkg.dependencies && pkg.dependencies['oex-engine'] === 'workspace:*') {
+  pkg.dependencies['oex-engine'] = 'file:./modules/oex-engine';
+  fs.writeFileSync('$BUILD_DIR/package.json', JSON.stringify(pkg, null, 2));
+  console.log('   Patched oex-engine: workspace:* → file:./modules/oex-engine');
+} else {
+  console.log('   No workspace:* reference found, skipping.');
+}
+"
+
+echo "3. Setting up fake git (bypasses Replit git restrictions)..."
 mkdir -p /tmp/fakegit
 cat > /tmp/fakegit/git << 'GITEOF'
 #!/bin/bash
@@ -55,7 +68,7 @@ esac
 GITEOF
 chmod +x /tmp/fakegit/git
 
-echo "3. Patching EAS CLI git client..."
+echo "4. Patching EAS CLI git client..."
 node << 'NODEOF'
 const fs = require('fs');
 const file = '/tmp/chess-build/node_modules/eas-cli/build/vcs/clients/git.js';
@@ -89,7 +102,7 @@ fs.writeFileSync(file, lines.join('\n'));
 try { require(file); console.log('   Patch OK'); } catch(e) { console.error('Patch failed:', e.message); process.exit(1); }
 NODEOF
 
-echo "4. Starting EAS cloud build..."
+echo "5. Starting EAS cloud build..."
 echo "   (This uploads your code to Expo's servers for building)"
 echo ""
 
