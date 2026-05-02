@@ -12,15 +12,15 @@ echo "1. Preparing build directory..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-# Copy all source files except node_modules and generated dirs
-rsync -a \
-  --exclude='node_modules' \
-  --exclude='.expo' \
-  --exclude='android' \
-  --exclude='ios' \
-  --exclude='static-build' \
-  --exclude='.git' \
-  "$SRC_DIR/" "$BUILD_DIR/"
+# Copy all source files except node_modules and generated dirs using tar
+(cd "$SRC_DIR" && tar -c \
+  --exclude='./node_modules' \
+  --exclude='./.expo' \
+  --exclude='./android' \
+  --exclude='./ios' \
+  --exclude='./static-build' \
+  --exclude='./.git' \
+  . ) | tar -x -C "$BUILD_DIR"
 
 # Symlink node_modules
 ln -s "$SRC_DIR/node_modules" "$BUILD_DIR/node_modules"
