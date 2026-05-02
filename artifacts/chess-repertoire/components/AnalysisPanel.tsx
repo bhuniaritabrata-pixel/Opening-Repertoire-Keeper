@@ -13,24 +13,45 @@ import { useEngine } from "@/context/EngineContext";
 import { useColors } from "@/hooks/useColors";
 import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, MoveAnnotation } from "@/types/chess";
 import EngineSlotModal from "@/components/EngineSlotModal";
-import { analyzePosition, formatScore, evalBarPercent, EngineResult } from "@/utils/chessEngine";
+import { analyzePosition, evalBarPercent, EngineResult } from "@/utils/chessEngine";
+import { parseFenToBoard } from "@/utils/chess";
 
-// ─── Move quality classification ─────────────────────────────────────────────
-// Delta is change in eval from White's perspective after opponent's reply (negative = bad for side that moved)
-const MOVE_THRESHOLDS: Array<{ delta: number; annotation: MoveAnnotation }> = [
-  { delta: -250, annotation: "blunder"    },
-  { delta: -100, annotation: "mistake"    },
-  { delta:  -50, annotation: "inaccuracy" },
-  { delta:   50, annotation: "good"       },
-  { delta:  150, annotation: "great"      },
-  { delta:  300, annotation: "best"       },
-];
+// ─── CPL-based move classification ───────────────────────────────────────────
+// cpl = centipawn loss for the side that just moved (positive = bad, negative = gained)
+// Thresholds match Lichess/Chess.com conventions:
+//   brilliant  cpl ≤ −50   (gained significantly — sacrifice / deep find)
+//   best       cpl ≤  10   (near-optimal)
+//   great      cpl ≤  25
+//   good       cpl ≤  60
+//   inaccuracy cpl ≤ 120
+//   mistake    cpl ≤ 250
+//   blunder    cpl >  250
+function classifyCPL(cpl: number): MoveAnnotation {
+  if (cpl <= -50)  return "brilliant";
+  if (cpl <=  10)  return "best";
+  if (cpl <=  25)  return "great";
+  if (cpl <=  60)  return "good";
+  if (cpl <= 120)  return "inaccuracy";
+  if (cpl <= 250)  return "mistake";
+  return "blunder";
+}
 
-function classifyMove(delta: number): MoveAnnotation {
-  for (const { delta: thr, annotation } of MOVE_THRESHOLDS) {
-    if (delta <= thr) return annotation;
+/**
+ * Compute centipawn loss for the side that JUST moved.
+ * prevScore and newScore are both from White's perspective.
+ * fenAfter is the FEN after the move — its active color tells us who just moved.
+ */
+function computeCPL(prevScore: number, newScore: number, fenAfter: string): number {
+  const state = parseFenToBoard(fenAfter);
+  // active color in fenAfter = side to move NOW = opponent of who just moved
+  const whiteJustMoved = state.activeColor === "b";
+  if (whiteJustMoved) {
+    // White just moved: good if eval stayed high → loss = prevScore − newScore
+    return prevScore - newScore;
+  } else {
+    // Black just moved: good if eval dropped → loss = newScore − prevScore
+    return newScore - prevScore;
   }
-  return "brilliant";
 }
 
 // ─── Eval bar (vertical, White on bottom) ────────────────────────────────────
@@ -85,8 +106,11 @@ export default function AnalysisPanel() {
   const [currentDepth, setCurrentDepth] = useState(0);
   const [showEngineSlot, setShowEngineSlot] = useState(false);
   const cancelRef = useRef<(() => void) | null>(null);
-  const prevEvalRef = useRef<number>(0);
-  const prevFenRef = useRef<string>("");
+
+  // Tracks the FINAL eval of the last completed position search (always white's perspective)
+  const completedEvalRef = useRef<{ score: number; fen: string } | null>(null);
+  // Whether we've already annotated the current node (to avoid re-annotating on depth bumps)
+  const annotatedNodeRef = useRef<string | null>(null);
 
   // Auto-connect external engine
   useEffect(() => {
@@ -97,7 +121,6 @@ export default function AnalysisPanel() {
 
   // Main analysis effect
   useEffect(() => {
-    // Cancel any running search
     cancelRef.current?.();
     cancelRef.current = null;
 
@@ -110,80 +133,74 @@ export default function AnalysisPanel() {
       return;
     }
 
-    const isNewPosition = fen !== prevFenRef.current;
-    prevFenRef.current = fen;
-
     // ── External UCI engine ───────────────────────────────────────────────
     if (activeSlot === "external" && engine?.isReady()) {
       setIsAnalyzing(true);
       engine.analyze(fen, evalDepth, (result) => {
-        if (result.score !== null) {
-          setEvaluation(result.score);
-          setCurrentDepth(result.depth);
-        }
-        if (result.mate !== null) {
-          setMateIn(result.mate);
-          setEvaluation(null);
-        }
+        const score = result.score ?? 0;
+        if (result.mate !== null) { setMateIn(result.mate); setEvaluation(null); }
+        else { setEvaluation(score); setMateIn(null); }
+        setCurrentDepth(result.depth);
+
         if (result.pv.length > 0) {
           const evalStr = result.mate !== null
             ? `M${Math.abs(result.mate)}`
-            : `${(result.score ?? 0) >= 0 ? "+" : ""}${((result.score ?? 0) / 100).toFixed(2)}`;
+            : `${score >= 0 ? "+" : ""}${(score / 100).toFixed(2)}`;
           setBestMoves([`${evalStr}  ${result.pv.slice(0, 4).join(" ")}`]);
         }
-        if (isNewPosition && currentNodeId) {
-          const absEval = result.score ?? 0;
-          const delta = absEval - prevEvalRef.current;
-          prevEvalRef.current = absEval;
-          if (Math.abs(delta) > 30) annotateNode(currentNodeId, classifyMove(delta));
+
+        // Annotate on first result for this node
+        if (currentNodeId && annotatedNodeRef.current !== currentNodeId) {
+          const prev = completedEvalRef.current;
+          if (prev && prev.fen !== fen) {
+            const cpl = computeCPL(prev.score, score, fen);
+            annotateNode(currentNodeId, classifyCPL(cpl));
+            annotatedNodeRef.current = currentNodeId;
+          }
+          completedEvalRef.current = { score, fen };
         }
         setIsAnalyzing(false);
       });
       return;
     }
 
-    // ── Built-in JS engine (iterative deepening alpha-beta) ───────────────
+    // ── Built-in JS engine (iterative deepening) ──────────────────────────
     setIsAnalyzing(true);
     setCurrentDepth(0);
 
     const cancel = analyzePosition(fen, evalDepth, (result: EngineResult) => {
       setCurrentDepth(result.depth);
-      setCurrentDepth(result.depth);
 
-      if (result.mate !== null) {
-        setMateIn(result.mate);
-        setEvaluation(null);
-      } else {
-        setEvaluation(result.score);
-        setMateIn(null);
-      }
+      const score = result.score;
+      if (result.mate !== null) { setMateIn(result.mate); setEvaluation(null); }
+      else { setEvaluation(score); setMateIn(null); }
 
-      // Best move line
       const evalStr = result.mate !== null
         ? `M${Math.abs(result.mate)}`
-        : `${result.score >= 0 ? "+" : ""}${(result.score / 100).toFixed(2)}`;
+        : `${score >= 0 ? "+" : ""}${(score / 100).toFixed(2)}`;
       setBestMoves([`${evalStr}  Best: ${result.bestMove}  (d${result.depth})`]);
 
-      // Annotate move quality when position changes
-      if (isNewPosition && currentNodeId && result.depth >= Math.min(evalDepth, 4)) {
-        const delta = result.score - prevEvalRef.current;
-        prevEvalRef.current = result.score;
-        if (Math.abs(delta) > 25) {
-          annotateNode(currentNodeId, classifyMove(delta));
+      // Annotate once per node when we reach a reliable depth (≥ 3)
+      if (currentNodeId
+          && result.depth >= Math.min(evalDepth, 3)
+          && annotatedNodeRef.current !== currentNodeId) {
+        const prev = completedEvalRef.current;
+        if (prev && prev.fen !== fen) {
+          const cpl = computeCPL(prev.score, score, fen);
+          annotateNode(currentNodeId, classifyCPL(cpl));
+          annotatedNodeRef.current = currentNodeId;
         }
       }
 
+      // When search is fully complete, record this as the reference eval
       if (result.depth >= evalDepth) {
+        completedEvalRef.current = { score, fen };
         setIsAnalyzing(false);
       }
     });
 
     cancelRef.current = cancel;
-
-    return () => {
-      cancel();
-      cancelRef.current = null;
-    };
+    return () => { cancel(); cancelRef.current = null; };
   }, [fen, analysisEnabled, evalDepth, activeSlot, connectionStatus]);
 
   // ─── Derived display values ────────────────────────────────────────────────
