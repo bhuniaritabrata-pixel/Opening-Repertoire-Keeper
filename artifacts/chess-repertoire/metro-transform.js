@@ -15,12 +15,15 @@ const PRIVATE_PATH_RE = /react-native[/\\]src[/\\]private/;
 const CODEGEN_CALL_RE = /codegenNativeComponent(?:<[^>]*>)?\s*\(\s*['"]([^'"]+)['"]/;
 
 function makeStub(viewName) {
+  // requireNativeComponent returns a string (the view name) in some RN versions.
+  // We must NOT try to assign .default onto a primitive, so we wrap in an
+  // object with __esModule:true so Babel's interopRequireDefault picks up
+  // the .default property correctly.
   return [
     "'use strict';",
     "const { requireNativeComponent } = require('react-native');",
     `const __C = requireNativeComponent('${viewName}');`,
-    'module.exports = __C;',
-    'module.exports.default = __C;',
+    'module.exports = { __esModule: true, default: __C };',
   ].join('\n');
 }
 
