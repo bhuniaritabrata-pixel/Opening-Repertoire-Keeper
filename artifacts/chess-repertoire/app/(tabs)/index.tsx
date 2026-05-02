@@ -1,11 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
-  FlatList,
   Modal,
   PanResponder,
   Platform,
@@ -80,26 +79,40 @@ export default function RepertoireListScreen() {
   const scrollOffset = useRef(0);
   const isScrollEnabled = useRef(true);
 
-  // ── Sorting helpers ──────────────────────────────────────────
-  const sortedFolders = [...folders].sort((a, b) => {
+  // ── Memoized move counts — avoids recursive tree walk on every render ─────
+  const moveCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const o of openings) counts[o.id] = countMoves(o.moveTree);
+    return counts;
+  }, [openings]);
+
+  // ── Sorting helpers — memoized so they don't re-sort on unrelated state ───
+  const sortedFolders = useMemo(() => [...folders].sort((a, b) => {
     if (sortMode === "az") return a.name.localeCompare(b.name);
     if (sortMode === "za") return b.name.localeCompare(a.name);
     return (a.order ?? 0) - (b.order ?? 0);
-  });
+  }), [folders, sortMode]);
 
-  const sortedOpenings = [...openings].sort((a, b) => {
+  const sortedOpenings = useMemo(() => [...openings].sort((a, b) => {
     if (sortMode === "az") return a.name.localeCompare(b.name);
     if (sortMode === "za") return b.name.localeCompare(a.name);
     return (a.order ?? 0) - (b.order ?? 0);
-  });
+  }), [openings, sortMode]);
 
-  const filteredOpenings = sortedOpenings.filter(o =>
-    o.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredOpenings = useMemo(() =>
+    sortedOpenings.filter(o => o.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    [sortedOpenings, searchQuery]
   );
 
-  const rootOpenings = filteredOpenings.filter(o => !o.folderId);
-  const getFolderOpenings = (folderId: string) =>
-    filteredOpenings.filter(o => o.folderId === folderId);
+  const rootOpenings = useMemo(() =>
+    filteredOpenings.filter(o => !o.folderId),
+    [filteredOpenings]
+  );
+
+  const getFolderOpenings = useCallback((folderId: string) =>
+    filteredOpenings.filter(o => o.folderId === folderId),
+    [filteredOpenings]
+  );
 
   // ── Folder toggle ─────────────────────────────────────────────
   const toggleFolder = (id: string) => {
@@ -255,7 +268,7 @@ export default function RepertoireListScreen() {
   // ── Render items ─────────────────────────────────────────────
   const renderOpening = (opening: Opening, inFolder = false) => {
     const colorInfo = COLOR_OPTIONS.find(c => c.value === opening.color)!;
-    const moveCount = countMoves(opening.moveTree);
+    const moveCount = moveCounts[opening.id] ?? 0;
     const date = new Date(opening.updatedAt).toLocaleDateString();
     const isDragging = draggingId === opening.id;
     const panHandlers = buildPanResponder(opening)?.panHandlers;

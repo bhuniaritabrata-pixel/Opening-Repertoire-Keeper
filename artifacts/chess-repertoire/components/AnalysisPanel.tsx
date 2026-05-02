@@ -16,16 +16,6 @@ import EngineSlotModal from "@/components/EngineSlotModal";
 import { analyzePosition, evalBarPercent, EngineResult } from "@/utils/chessEngine";
 import { parseFenToBoard } from "@/utils/chess";
 
-// ─── CPL-based move classification ───────────────────────────────────────────
-// cpl = centipawn loss for the side that just moved (positive = bad, negative = gained)
-// Thresholds match Lichess/Chess.com conventions:
-//   brilliant  cpl ≤ −50   (gained significantly — sacrifice / deep find)
-//   best       cpl ≤  10   (near-optimal)
-//   great      cpl ≤  25
-//   good       cpl ≤  60
-//   inaccuracy cpl ≤ 120
-//   mistake    cpl ≤ 250
-//   blunder    cpl >  250
 function classifyCPL(cpl: number): MoveAnnotation {
   if (cpl <= -50)  return "brilliant";
   if (cpl <=  10)  return "best";
@@ -36,30 +26,16 @@ function classifyCPL(cpl: number): MoveAnnotation {
   return "blunder";
 }
 
-/**
- * Compute centipawn loss for the side that JUST moved.
- * prevScore and newScore are both from White's perspective.
- * fenAfter is the FEN after the move — its active color tells us who just moved.
- */
 function computeCPL(prevScore: number, newScore: number, fenAfter: string): number {
   const state = parseFenToBoard(fenAfter);
-  // active color in fenAfter = side to move NOW = opponent of who just moved
   const whiteJustMoved = state.activeColor === "b";
-  if (whiteJustMoved) {
-    // White just moved: good if eval stayed high → loss = prevScore − newScore
-    return prevScore - newScore;
-  } else {
-    // Black just moved: good if eval dropped → loss = newScore − prevScore
-    return newScore - prevScore;
-  }
+  if (whiteJustMoved) return prevScore - newScore;
+  else return newScore - prevScore;
 }
 
-// ─── Eval bar (vertical, White on bottom) ────────────────────────────────────
 function EvalBar({ pct, mateIn, evaluation }: { pct: number; mateIn: number | null; evaluation: number | null }) {
   const colors = useColors();
-  const whiteH = pct;  // percentage for white
-  const blackH = 100 - pct;
-
+  const whiteH = pct;
   const label = mateIn !== null
     ? `M${Math.abs(mateIn)}`
     : evaluation !== null
@@ -69,13 +45,7 @@ function EvalBar({ pct, mateIn, evaluation }: { pct: number; mateIn: number | nu
   return (
     <View style={styles.evalBarContainer}>
       <View style={[styles.evalBarTrack, { backgroundColor: "#1a1a1a" }]}>
-        {/* White portion — bottom */}
-        <View
-          style={[
-            styles.evalBarFill,
-            { height: `${whiteH}%`, backgroundColor: "#f0f0f0" },
-          ]}
-        />
+        <View style={[styles.evalBarFill, { height: `${whiteH}%`, backgroundColor: "#f0f0f0" }]} />
       </View>
       <Text style={[styles.evalBarLabel, { color: colors.mutedForeground }]} numberOfLines={1}>
         {label}
@@ -84,7 +54,6 @@ function EvalBar({ pct, mateIn, evaluation }: { pct: number; mateIn: number | nu
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
 export default function AnalysisPanel() {
   const colors = useColors();
   const {
@@ -93,8 +62,9 @@ export default function AnalysisPanel() {
     bestMoves, setBestMoves,
     evalDepth, setEvalDepth,
     mateIn, setMateIn,
-    fen, currentPath, currentNodeId, annotateNode,
+    fen, currentNodeId, annotateNode,
     setBestMoveArrow,
+    currentPath,
   } = useBoard();
 
   const {
@@ -108,17 +78,14 @@ export default function AnalysisPanel() {
   const [showEngineSlot, setShowEngineSlot] = useState(false);
   const cancelRef = useRef<(() => void) | null>(null);
 
-  // Tracks the FINAL eval of the last completed position search (always white's perspective)
   const completedEvalRef = useRef<{ score: number; fen: string } | null>(null);
 
-  // Auto-connect external engine
   useEffect(() => {
     if (analysisEnabled && activeSlot === "external" && connectionStatus === "idle") {
       connectEngine();
     }
   }, [analysisEnabled, activeSlot, connectionStatus]);
 
-  // Main analysis effect
   useEffect(() => {
     cancelRef.current?.();
     cancelRef.current = null;
@@ -133,14 +100,11 @@ export default function AnalysisPanel() {
       return;
     }
 
-    // Helper: parse UCI move string "e2e4" → arrow { from, to }
     const parseArrow = (uci: string) =>
       uci.length >= 4 ? { from: uci.slice(0, 2), to: uci.slice(2, 4) } : null;
 
-    // Clear arrow for new position
     setBestMoveArrow(null);
 
-    // ── External UCI engine ───────────────────────────────────────────────
     if (activeSlot === "external" && engine?.isReady()) {
       setIsAnalyzing(true);
       engine.analyze(fen, evalDepth, (result) => {
@@ -149,7 +113,6 @@ export default function AnalysisPanel() {
         else { setEvaluation(score); setMateIn(null); }
         setCurrentDepth(result.depth);
 
-        // Arrow for best move
         if (result.pv.length > 0) {
           const evalStr = result.mate !== null
             ? `M${Math.abs(result.mate)}`
@@ -159,8 +122,8 @@ export default function AnalysisPanel() {
           if (arrow) setBestMoveArrow(arrow);
         }
 
-        // Annotate / update badge at every depth result
-        if (currentNodeId) {
+        // Only annotate at final depth — avoids repeated AsyncStorage writes
+        if (currentNodeId && result.depth >= evalDepth) {
           const prev = completedEvalRef.current;
           if (prev && prev.fen !== fen) {
             const cpl = computeCPL(prev.score, score, fen);
@@ -173,7 +136,6 @@ export default function AnalysisPanel() {
       return;
     }
 
-    // ── Built-in JS engine (iterative deepening) ──────────────────────────
     setIsAnalyzing(true);
     setCurrentDepth(0);
 
@@ -189,21 +151,16 @@ export default function AnalysisPanel() {
         : `${score >= 0 ? "+" : ""}${(score / 100).toFixed(2)}`;
       setBestMoves([`${evalStr}  Best: ${result.bestMove}  (d${result.depth})`]);
 
-      // Arrow: update at every depth so it gets more accurate as search deepens
       const arrow = parseArrow(result.bestMove);
       if (arrow) setBestMoveArrow(arrow);
 
-      // Badge: update at every depth ≥ 3 so it refines as engine thinks deeper
-      if (currentNodeId && result.depth >= Math.min(evalDepth, 3)) {
+      // Only annotate once — at the final depth — one AsyncStorage write per position
+      if (currentNodeId && result.depth >= evalDepth) {
         const prev = completedEvalRef.current;
         if (prev && prev.fen !== fen) {
           const cpl = computeCPL(prev.score, score, fen);
           annotateNode(currentNodeId, classifyCPL(cpl));
         }
-      }
-
-      // When fully complete, record as reference eval for the next move comparison
-      if (result.depth >= evalDepth) {
         completedEvalRef.current = { score, fen };
         setIsAnalyzing(false);
       }
@@ -213,7 +170,6 @@ export default function AnalysisPanel() {
     return () => { cancel(); cancelRef.current = null; setBestMoveArrow(null); };
   }, [fen, analysisEnabled, evalDepth, activeSlot, connectionStatus]);
 
-  // ─── Derived display values ────────────────────────────────────────────────
   const pct = evalBarPercent(evaluation ?? 0, mateIn);
   const currentAnnotation = currentPath.length > 0
     ? currentPath[currentPath.length - 1]?.move.annotation
@@ -226,9 +182,7 @@ export default function AnalysisPanel() {
         ? "OEX Engine"
         : "Built-in";
 
-  const chipStatus = activeSlot === "external"
-    ? connectionStatus
-    : "ready";
+  const chipStatus = activeSlot === "external" ? connectionStatus : "ready";
 
   const chipColor: Record<string, string> = {
     idle: colors.mutedForeground,
@@ -240,7 +194,6 @@ export default function AnalysisPanel() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      {/* ── Header ────────────────────────────────────────────────────────── */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Feather name="cpu" size={15} color={colors.primary} />
@@ -254,7 +207,6 @@ export default function AnalysisPanel() {
         />
       </View>
 
-      {/* ── Engine selector row ───────────────────────────────────────────── */}
       <TouchableOpacity
         style={[styles.engineRow, { backgroundColor: colors.muted + "50", borderColor: colors.border }]}
         onPress={() => setShowEngineSlot(true)}
@@ -273,7 +225,6 @@ export default function AnalysisPanel() {
         <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
       </TouchableOpacity>
 
-      {/* ── Status banner (external engine not connected) ─────────────────── */}
       {analysisEnabled && activeSlot === "external" && connectionStatus !== "ready" && (
         <TouchableOpacity
           style={[styles.statusBanner, {
@@ -292,10 +243,8 @@ export default function AnalysisPanel() {
         </TouchableOpacity>
       )}
 
-      {/* ── Body ──────────────────────────────────────────────────────────── */}
       {analysisEnabled && (
         <View style={styles.body}>
-          {/* Eval bar + score row */}
           <View style={styles.evalSection}>
             <EvalBar pct={pct} mateIn={mateIn} evaluation={evaluation} />
 
@@ -309,7 +258,6 @@ export default function AnalysisPanel() {
                 </View>
               ) : (
                 <>
-                  {/* Score */}
                   <View style={styles.scoreRow}>
                     <Text style={[styles.scoreValue, { color: colors.foreground }]}>
                       {mateIn !== null
@@ -323,7 +271,6 @@ export default function AnalysisPanel() {
                     )}
                   </View>
 
-                  {/* Depth + annotation */}
                   <View style={styles.metaRow}>
                     <Text style={[styles.depthText, { color: colors.mutedForeground }]}>
                       depth {currentDepth}
@@ -337,7 +284,6 @@ export default function AnalysisPanel() {
                     )}
                   </View>
 
-                  {/* Best move line */}
                   {bestMoves.length > 0 && (
                     <Text style={[styles.pvLine, { color: colors.mutedForeground }]} numberOfLines={1}>
                       {bestMoves[0]}
@@ -348,7 +294,6 @@ export default function AnalysisPanel() {
             </View>
           </View>
 
-          {/* Depth selector */}
           <View style={styles.depthRow}>
             <Text style={[styles.depthLabel, { color: colors.mutedForeground }]}>Depth</Text>
             <View style={styles.depthBtns}>
@@ -386,7 +331,6 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1 },
   title: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  // Engine selector row
   engineRow: {
     flexDirection: "row", alignItems: "center", gap: 10,
     marginHorizontal: 10, marginBottom: 8,
@@ -405,7 +349,6 @@ const styles = StyleSheet.create({
   },
   statusBannerText: { fontSize: 12, fontWeight: "600", flex: 1 },
   body: { paddingHorizontal: 10, paddingBottom: 10, gap: 8 },
-  // Eval section
   evalSection: { flexDirection: "row", alignItems: "stretch", gap: 10 },
   evalBarContainer: { alignItems: "center", gap: 4 },
   evalBarTrack: {
@@ -424,7 +367,6 @@ const styles = StyleSheet.create({
   annotationBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
   annotationText: { fontSize: 11, fontWeight: "700" },
   pvLine: { fontSize: 11, fontFamily: "Inter_400Regular", letterSpacing: 0.1 },
-  // Depth row
   depthRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   depthLabel: { fontSize: 12, minWidth: 40 },
   depthBtns: { flexDirection: "row", gap: 5 },

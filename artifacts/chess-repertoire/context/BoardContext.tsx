@@ -21,6 +21,7 @@ interface BoardContextType {
   selectedSquare: string | null;
   setSelectedSquare: (sq: string | null) => void;
   legalMoves: string[];
+  legalMovesSet: Set<string>;
   boardTheme: BoardTheme;
   setBoardTheme: (theme: BoardTheme) => void;
   customLight: string;
@@ -89,17 +90,21 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   const [showBoardAnnotations, setShowBoardAnnotations] = useState(true);
   const [bestMoveArrow, setBestMoveArrow] = useState<{ from: string; to: string } | null>(null);
 
+  // O(1) lookup set — derived from legalMoves array, recomputed only when legalMoves changes
+  const legalMovesSet = useMemo(() => new Set(legalMoves), [legalMoves]);
+
   const toggleBoardAnnotations = useCallback(() => setShowBoardAnnotations(v => !v), []);
 
-  // Show annotation badge on the destination square of the current move (the move you are viewing)
+  // squareAnnotations: depends only on currentPath + currentNodeId, NOT on the full opening object.
+  // This means updateOpening calls during analysis don't trigger a board re-render.
   const squareAnnotations = useMemo<Record<string, { annotation: MoveAnnotation; from: string }>>(() => {
-    if (!showBoardAnnotations || !opening || !currentNodeId) return {};
-    const currentNode = findNodeById(opening.moveTree, currentNodeId);
-    if (!currentNode?.move.annotation) return {};
+    if (!showBoardAnnotations || !currentNodeId) return {};
+    const currentNode = currentPath[currentPath.length - 1];
+    if (!currentNode || currentNode.id !== currentNodeId || !currentNode.move.annotation) return {};
     return {
       [currentNode.move.to]: { annotation: currentNode.move.annotation, from: currentNode.move.from },
     };
-  }, [opening, currentNodeId, showBoardAnnotations]);
+  }, [currentPath, currentNodeId, showBoardAnnotations]);
 
   const handleSquarePress = useCallback((sq: string) => {
     if (pendingPromotion) return;
@@ -110,13 +115,11 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       return;
     }
 
-    if (selectedSquare && legalMoves.includes(sq)) {
-      // Check if promotion
+    if (selectedSquare && legalMovesSet.has(sq)) {
       const isWhitePawn = fen.split(" ")[1] === "w";
       const toRank = sq.charCodeAt(1) - "1".charCodeAt(0);
 
       if (toRank === 7 && isWhitePawn || toRank === 0 && !isWhitePawn) {
-        // Need to verify it's actually a pawn
         const result = applyMove(fen, selectedSquare, sq, "q");
         if (result && result.san.includes("=")) {
           setPendingPromotion({ from: selectedSquare, to: sq });
@@ -152,7 +155,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       setSelectedSquare(null);
       setLegalMoves([]);
     }
-  }, [selectedSquare, legalMoves, fen, opening, currentNodeId, currentPath, addMoveToOpening, pendingPromotion, locked]);
+  }, [selectedSquare, legalMovesSet, fen, opening, currentNodeId, currentPath, addMoveToOpening, pendingPromotion, locked]);
 
   const confirmPromotion = useCallback((piece: string) => {
     if (!pendingPromotion) return;
@@ -251,7 +254,6 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   const deleteCurrentMove = useCallback(() => {
     if (!opening || !currentNodeId) return;
     const idToDelete = currentNodeId;
-    // Step back to the previous position first so the board stays valid
     const newPath = currentPath.slice(0, -1);
     const prevNode = newPath[newPath.length - 1] || null;
     setCurrentPath(newPath);
@@ -262,36 +264,56 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     deleteMoveNode(opening.id, idToDelete);
   }, [opening, currentNodeId, currentPath, deleteMoveNode]);
 
+  // annotateNode: updates the opening tree AND mirrors the annotation into currentPath
+  // so squareAnnotations (which reads currentPath) stays in sync without re-reading opening.
   const annotateNode = useCallback((nodeId: string, annotation: MoveAnnotation | undefined) => {
     if (!opening) return;
 
-    function annotate(nodes: MoveNode[]): MoveNode[] {
+    function applyAnnotation(nodes: MoveNode[]): MoveNode[] {
       return nodes.map(n => {
         if (n.id === nodeId) return { ...n, move: { ...n.move, annotation } };
-        return { ...n, children: annotate(n.children) };
+        return { ...n, children: applyAnnotation(n.children) };
       });
     }
 
-    updateOpening(opening.id, { moveTree: annotate(opening.moveTree) });
+    updateOpening(opening.id, { moveTree: applyAnnotation(opening.moveTree) });
+
+    // Mirror annotation into currentPath so squareAnnotations updates instantly
+    // without waiting for the opening object to propagate through context.
+    setCurrentPath(prev =>
+      prev.map(n => n.id === nodeId ? { ...n, move: { ...n.move, annotation } } : n)
+    );
   }, [opening, updateOpening]);
 
+  const contextValue = useMemo(() => ({
+    fen, setFen, flipped, setFlipped,
+    selectedSquare, setSelectedSquare,
+    legalMoves, legalMovesSet,
+    boardTheme, setBoardTheme,
+    customLight, customDark, setCustomLight, setCustomDark,
+    handleSquarePress, currentPath, currentNodeId,
+    goToMove, goBack, goForward, goToStart, goToEnd,
+    analysisEnabled, setAnalysisEnabled,
+    evaluation, setEvaluation, bestMoves, setBestMoves,
+    evalDepth, setEvalDepth, mateIn, setMateIn,
+    annotateNode,
+    promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
+    locked, setLocked, deleteCurrentMove,
+    showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
+    bestMoveArrow, setBestMoveArrow,
+  }), [
+    fen, flipped, selectedSquare, legalMoves, legalMovesSet,
+    boardTheme, customLight, customDark,
+    handleSquarePress, currentPath, currentNodeId,
+    goToMove, goBack, goForward, goToStart, goToEnd,
+    analysisEnabled, evaluation, bestMoves, evalDepth, mateIn,
+    annotateNode, promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
+    locked, deleteCurrentMove, showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
+    bestMoveArrow,
+  ]);
+
   return (
-    <BoardContext.Provider value={{
-      fen, setFen, flipped, setFlipped,
-      selectedSquare, setSelectedSquare,
-      legalMoves, boardTheme, setBoardTheme,
-      customLight, customDark, setCustomLight, setCustomDark,
-      handleSquarePress, currentPath, currentNodeId,
-      goToMove, goBack, goForward, goToStart, goToEnd,
-      analysisEnabled, setAnalysisEnabled,
-      evaluation, setEvaluation, bestMoves, setBestMoves,
-      evalDepth, setEvalDepth, mateIn, setMateIn,
-      annotateNode,
-      promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
-      locked, setLocked, deleteCurrentMove,
-      showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
-      bestMoveArrow, setBestMoveArrow,
-    }}>
+    <BoardContext.Provider value={contextValue}>
       {children}
     </BoardContext.Provider>
   );

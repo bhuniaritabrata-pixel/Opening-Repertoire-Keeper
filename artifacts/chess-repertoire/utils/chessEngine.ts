@@ -1,12 +1,11 @@
 /**
  * Built-in chess engine — alpha-beta search with piece-square tables.
- * Strength: roughly SF 8-10 level (correct centipawn readings, no NNUE).
- * Runs fully offline in the JS thread. Uses iterative deepening so results
- * stream in at depth 1, 2, 3 … up to maxDepth.
+ * Performance: FEN is parsed ONCE per node, not in sort comparators or evaluate.
+ * Runs fully offline in the JS thread using iterative deepening.
  */
 
 import { parseFenToBoard, getLegalMoves, applyMove, coordsToSquare, squareToCoords } from "@/utils/chess";
-import { Square, PieceType } from "@/types/chess";
+import { Square } from "@/types/chess";
 
 // ─── Piece values (centipawns) ────────────────────────────────────────────────
 const PIECE_VALUE: Record<string, number> = {
@@ -77,17 +76,17 @@ const PST: Record<string, number[]> = {
   ],
 };
 
-// Mirrored PST for black (flip row index)
 function pstScore(type: string, row: number, col: number, isWhite: boolean): number {
   const idx = isWhite ? row * 8 + col : (7 - row) * 8 + col;
   return (PST[type]?.[idx] ?? 0);
 }
 
-// ─── Static evaluation (always from White's perspective in centipawns) ─────────
-function evaluate(fen: string): number {
-  const state = parseFenToBoard(fen);
-  let score = 0;
+// ─── Board state type (from parseFenToBoard) ──────────────────────────────────
+type BoardState = ReturnType<typeof parseFenToBoard>;
 
+// ─── Static evaluation — takes pre-parsed board state (no FEN re-parse) ───────
+function evaluateState(state: BoardState): number {
+  let score = 0;
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const p = state.board[r][c];
@@ -98,15 +97,12 @@ function evaluate(fen: string): number {
       else score -= v + ps;
     }
   }
-
   return score;
 }
 
-// ─── Move generation for a full position ─────────────────────────────────────
-function getAllLegalMoves(fen: string): Array<[Square, Square]> {
-  const state = parseFenToBoard(fen);
+// ─── Move generation — uses pre-parsed state for piece iteration ──────────────
+function collectMoves(fen: string, state: BoardState): Array<[Square, Square]> {
   const moves: Array<[Square, Square]> = [];
-
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const p = state.board[r][c];
@@ -121,7 +117,7 @@ function getAllLegalMoves(fen: string): Array<[Square, Square]> {
 
 // ─── Negamax alpha-beta ───────────────────────────────────────────────────────
 const CHECKMATE = 1_000_000;
-const TEMPO = 10; // small bonus for the side to move
+const TEMPO = 10;
 
 function negamax(
   fen: string,
@@ -131,42 +127,30 @@ function negamax(
   cancelled: { v: boolean },
 ): number {
   if (cancelled.v) return 0;
+
+  // Parse FEN ONCE per node — reused for evaluation, move gen, and move ordering
+  const state = parseFenToBoard(fen);
+
   if (depth === 0) {
-    const state = parseFenToBoard(fen);
-    const raw = evaluate(fen);
-    // Return from the perspective of side to move
+    const raw = evaluateState(state);
     return state.activeColor === "w" ? raw + TEMPO : -raw + TEMPO;
   }
 
-  const moves = getAllLegalMoves(fen);
+  const moves = collectMoves(fen, state);
+
   if (moves.length === 0) {
-    // No legal moves — check for check
-    const state = parseFenToBoard(fen);
-    const col = state.activeColor;
-    // isInCheck via king-attack detection (look for attacked king)
-    // Use a shallow re-analysis: if 0 moves and would expose king, it's checkmate
-    // Simple: call evaluate and detect king missing on either side
-    // Actually we rely on getLegalMoves filtering out illegal moves, so 0 = terminal
-    // Stalemate = 0; checkmate = -CHECKMATE (we lost)
-    // We can check: try all opponent moves; if king can be captured, it's checkmate
-    // Simpler proxy: parse "K" or "k" presence
     const fenBoard = fen.split(" ")[0];
-    const kingChar = col === "w" ? "K" : "k";
-    if (!fenBoard.includes(kingChar)) return -CHECKMATE + depth; // shouldn't happen
-    // If no moves, check if king is attacked by trying opponent's view
-    // Quick proxy: if depth is even or odd — just return -big for checkmate detection
-    // Actually the cleanest: count pseudo-legal moves targeting king square
-    // For simplicity assume stalemate = 0, checkmate will surface via material loss
+    const kingChar = state.activeColor === "w" ? "K" : "k";
+    if (!fenBoard.includes(kingChar)) return -CHECKMATE + depth;
     return 0;
   }
 
-  // Move ordering: captures first (MVV-LVA approximation)
+  // Move ordering: captures first — uses already-parsed state, NO extra FEN parse
   const ordered = moves.slice().sort(([, a], [, b]) => {
-    const stateNow = parseFenToBoard(fen);
     const [ar, ac] = squareToCoords(a as Square);
     const [br, bc] = squareToCoords(b as Square);
-    const aPiece = stateNow.board[ar][ac];
-    const bPiece = stateNow.board[br][bc];
+    const aPiece = state.board[ar][ac];
+    const bPiece = state.board[br][bc];
     const av = aPiece ? (PIECE_VALUE[aPiece.type] ?? 0) : 0;
     const bv = bPiece ? (PIECE_VALUE[bPiece.type] ?? 0) : 0;
     return bv - av;
@@ -187,18 +171,13 @@ function negamax(
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 export interface EngineResult {
-  score: number;        // centipawns from White's perspective
-  mate: number | null;  // mate in N (positive = white mates, negative = black mates)
+  score: number;
+  mate: number | null;
   depth: number;
-  bestMove: string;     // UCI e.g. "e2e4"
-  pv: string[];         // principal variation UCI
+  bestMove: string;
+  pv: string[];
 }
 
-/**
- * Analyze a position with iterative deepening.
- * Calls onResult after each depth completes.
- * Returns a cancel function — call it to stop analysis.
- */
 export function analyzePosition(
   fen: string,
   maxDepth: number,
@@ -207,21 +186,23 @@ export function analyzePosition(
   const cancelled = { v: false };
 
   const run = async () => {
+    // Parse the root FEN once for the top-level search
+    const rootState = parseFenToBoard(fen);
+
     for (let depth = 1; depth <= maxDepth && !cancelled.v; depth++) {
-      const moves = getAllLegalMoves(fen);
+      const moves = collectMoves(fen, rootState);
       if (moves.length === 0) break;
 
       let bestScore = -Infinity;
       let bestMove: [Square, Square] | null = null;
       let bestPv: string[] = [];
 
-      // Move ordering: captures first
-      const state = parseFenToBoard(fen);
+      // Move ordering at root — use the already-parsed rootState, NO extra parse
       const ordered = moves.slice().sort(([, a], [, b]) => {
         const [ar, ac] = squareToCoords(a as Square);
         const [br, bc] = squareToCoords(b as Square);
-        const ap = state.board[ar][ac];
-        const bp = state.board[br][bc];
+        const ap = rootState.board[ar][ac];
+        const bp = rootState.board[br][bc];
         return (PIECE_VALUE[bp?.type ?? ""] ?? 0) - (PIECE_VALUE[ap?.type ?? ""] ?? 0);
       });
 
@@ -239,11 +220,9 @@ export function analyzePosition(
 
       if (cancelled.v || !bestMove) break;
 
-      // Convert from side-to-move perspective to absolute (white positive)
-      const isWhite = parseFenToBoard(fen).activeColor === "w";
+      const isWhite = rootState.activeColor === "w";
       const absScore = isWhite ? bestScore : -bestScore;
 
-      // Detect mate
       let mate: number | null = null;
       if (Math.abs(bestScore) > CHECKMATE - 1000) {
         const mateIn = Math.ceil((CHECKMATE - Math.abs(bestScore)) / 2);
@@ -259,7 +238,7 @@ export function analyzePosition(
         pv: bestPv,
       });
 
-      // Yield to allow UI updates and cancellation
+      // Yield between depths so UI can update
       await new Promise<void>(r => setTimeout(r, 0));
     }
   };
@@ -268,26 +247,15 @@ export function analyzePosition(
   return () => { cancelled.v = true; };
 }
 
-/**
- * Format a score for display (centipawns → human string).
- * Always from White's perspective: positive = white better.
- */
-export function formatScore(score: number, mate: number | null, activeColor: "w" | "b"): string {
-  if (mate !== null) {
-    const side = mate > 0 ? "White" : "Black";
-    return `M${Math.abs(mate)}`;
-  }
+export function formatScore(score: number, mate: number | null, _activeColor: "w" | "b"): string {
+  if (mate !== null) return `M${Math.abs(mate)}`;
   const pawns = score / 100;
   const sign = pawns >= 0 ? "+" : "";
   return `${sign}${pawns.toFixed(2)}`;
 }
 
-/**
- * Eval bar percentage for White (0 = black winning, 50 = equal, 100 = white winning).
- */
 export function evalBarPercent(score: number, mate: number | null): number {
   if (mate !== null) return mate > 0 ? 100 : 0;
-  // Sigmoid-like curve: ±500cp → ±40%, ±900cp → ±48%
   const x = score / 400;
   const pct = 50 + 50 * (x / Math.sqrt(1 + x * x));
   return Math.max(2, Math.min(98, pct));
