@@ -461,20 +461,126 @@ function buildSan(
   return san;
 }
 
-export function parsePgn(pgn: string): { moves: Array<{ from: string; to: string; san: string; fen: string }> } | null {
-  try {
-    // Very simplified PGN parser - just extracts move text
-    const cleaned = pgn
-      .replace(/\{[^}]*\}/g, "")
-      .replace(/\([^)]*\)/g, "")
-      .replace(/\d+\./g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+/**
+ * Resolve a SAN string (e.g. "Nf3", "exd5", "O-O", "e8=Q") to { from, to, promotion }
+ * given the current FEN. Returns null if the move is illegal or unrecognisable.
+ */
+export function sanToMove(
+  fen: string,
+  san: string,
+): { from: Square; to: Square; promotion?: PieceType } | null {
+  const state = parseFen(fen);
+  const color = state.activeColor;
 
-    const tokens = cleaned.split(" ").filter(t => t && !["*", "1-0", "0-1", "1/2-1/2"].includes(t));
-    return { moves: tokens.map(san => ({ from: "", to: "", san, fen: "" })) };
-  } catch {
-    return null;
+  // Strip decorators: check, checkmate, NAG, annotation symbols
+  let s = san.replace(/[+#!?]/g, "").replace(/\$\d+/g, "").trim();
+
+  // Castling (both O-O and 0-0 spellings)
+  if (s === "O-O-O" || s === "0-0-0") {
+    const from: Square = color === "w" ? "e1" : "e8";
+    const to: Square  = color === "w" ? "c1" : "c8";
+    return { from, to };
   }
+  if (s === "O-O" || s === "0-0") {
+    const from: Square = color === "w" ? "e1" : "e8";
+    const to: Square  = color === "w" ? "g1" : "g8";
+    return { from, to };
+  }
+
+  // Promotion: e8=Q or e8Q
+  let promotion: PieceType | undefined;
+  const promMatch = s.match(/=?([QRBNqrbn])$/);
+  if (promMatch && s.length > 2) {
+    promotion = promMatch[1].toLowerCase() as PieceType;
+    s = s.replace(/=?[QRBNqrbn]$/, "");
+  }
+
+  // Piece type (uppercase = not pawn)
+  let pieceType: PieceType = "p";
+  if (/^[KQRBN]/.test(s)) {
+    pieceType = s[0].toLowerCase() as PieceType;
+    s = s.slice(1);
+  }
+
+  // Strip capture marker
+  s = s.replace("x", "");
+
+  // Last 2 chars are always the destination square
+  if (s.length < 2) return null;
+  const to = s.slice(-2) as Square;
+  const disambig = s.slice(0, -2); // "", file char, rank char, or full square
+
+  // Collect all pieces of pieceType+color that can legally reach 'to'
+  const candidates: Square[] = [];
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const p = state.board[r][c];
+      if (!p || p.type !== pieceType || p.color !== color) continue;
+      const sq = coordsToSquare(r, c) as Square;
+      if (getLegalMoves(fen, sq).includes(to)) candidates.push(sq);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  let from: Square;
+  if (candidates.length === 1) {
+    from = candidates[0];
+  } else if (disambig.length === 2) {
+    // Full square disambiguation (e.g. "d1e4" → from=d1)
+    from = disambig as Square;
+  } else if (disambig.length === 1) {
+    const code = disambig.charCodeAt(0);
+    if (code >= 97 && code <= 104) {
+      // File letter a-h
+      const found = candidates.find(sq => sq[0] === disambig);
+      if (!found) return null;
+      from = found;
+    } else {
+      // Rank digit 1-8
+      const found = candidates.find(sq => sq[1] === disambig);
+      if (!found) return null;
+      from = found;
+    }
+  } else {
+    from = candidates[0];
+  }
+
+  return { from, to, promotion };
+}
+
+/**
+ * Strip PGN headers and comments, then return a flat list of SAN tokens.
+ * Handles Chess.com exported PGN: multi-line comments, NAG $N, variations (skipped),
+ * result tokens, and move numbers.
+ */
+export function parsePgnToSans(pgn: string): string[] {
+  // Remove header tags [Key "Value"]
+  let text = pgn.replace(/\[[^\]]*\]/g, "");
+
+  // Remove block comments { ... } — may be multi-line
+  text = text.replace(/\{[^}]*\}/g, " ");
+
+  // Remove variations ( ... ) — nested up to 3 levels deep
+  for (let i = 0; i < 4; i++) text = text.replace(/\([^()]*\)/g, " ");
+
+  // Remove NAG annotations $N
+  text = text.replace(/\$\d+/g, " ");
+
+  // Remove move numbers: "1." "1..." "12."
+  text = text.replace(/\d+\.+/g, " ");
+
+  // Normalise whitespace
+  text = text.replace(/\s+/g, " ").trim();
+
+  const RESULTS = new Set(["*", "1-0", "0-1", "1/2-1/2"]);
+  return text.split(" ").filter(t => t && !RESULTS.has(t));
+}
+
+/** @deprecated kept for backwards compatibility */
+export function parsePgn(pgn: string): { moves: Array<{ from: string; to: string; san: string; fen: string }> } | null {
+  const sans = parsePgnToSans(pgn);
+  if (!sans.length) return null;
+  return { moves: sans.map(san => ({ from: "", to: "", san, fen: "" })) };
 }
 

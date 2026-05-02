@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { Folder, MoveNode, Opening, SortMode, STARTING_FEN, generateId } from "@/types/chess";
+import { parsePgnToSans, sanToMove, applyMove } from "@/utils/chess";
 
 const STORAGE_KEY = "@chess_repertoire";
 const FOLDERS_KEY = "@chess_folders";
@@ -195,35 +196,71 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     try {
       const opening = openings.find(o => o.id === openingId);
       if (!opening) return false;
-      const cleaned = pgn
-        .replace(/\{[^}]*\}/g, "").replace(/\([^)]*\)/g, "")
-        .replace(/\d+\.\./g, "").replace(/\d+\./g, "")
-        .replace(/\s+/g, " ").trim();
-      const tokens = cleaned.split(" ").filter(t => t && !["*", "1-0", "0-1", "1/2-1/2"].includes(t));
-      if (!tokens.length) return false;
+
+      const sans = parsePgnToSans(pgn);
+      if (!sans.length) return false;
+
       let currentParentId: string | null = null;
       let currentFen = STARTING_FEN;
+
       const newOpenings = [...openings];
       const openingIdx = newOpenings.findIndex(o => o.id === openingId);
       if (openingIdx === -1) return false;
-      for (const san of tokens) {
+
+      let imported = 0;
+      for (const san of sans) {
+        // Resolve SAN → from/to using actual move generation
+        const resolved = sanToMove(currentFen, san);
+        if (!resolved) break; // stop at first unresolvable token
+
+        const moveResult = applyMove(currentFen, resolved.from, resolved.to, resolved.promotion ?? "q");
+        if (!moveResult) break;
+
         const nodeId = generateId();
         const newNode: MoveNode = {
           id: nodeId,
-          move: { from: "", to: "", san, fen: currentFen, annotation: undefined, comment: undefined },
+          move: {
+            from: resolved.from,
+            to: resolved.to,
+            san: moveResult.san,
+            fen: moveResult.fen,
+            annotation: undefined,
+            comment: undefined,
+          },
           children: [],
           parentId: currentParentId,
         };
+
+        const parentIdSnapshot = currentParentId;
         function insertNode(nodes: MoveNode[]): MoveNode[] {
-          if (currentParentId === null) return [...nodes, newNode];
+          if (parentIdSnapshot === null) {
+            // Avoid duplicates at root
+            const dup = nodes.find(n => n.move.from === resolved!.from && n.move.to === resolved!.to);
+            if (dup) return nodes;
+            return [...nodes, newNode];
+          }
           return nodes.map(n => {
-            if (n.id === currentParentId) return { ...n, children: [...n.children, newNode] };
+            if (n.id === parentIdSnapshot) {
+              const dup = n.children.find(c => c.move.from === resolved!.from && c.move.to === resolved!.to);
+              if (dup) return n;
+              return { ...n, children: [...n.children, newNode] };
+            }
             return { ...n, children: insertNode(n.children) };
           });
         }
-        newOpenings[openingIdx] = { ...newOpenings[openingIdx], moveTree: insertNode(newOpenings[openingIdx].moveTree), updatedAt: Date.now() };
+
+        newOpenings[openingIdx] = {
+          ...newOpenings[openingIdx],
+          moveTree: insertNode(newOpenings[openingIdx].moveTree),
+          updatedAt: Date.now(),
+        };
+
         currentParentId = nodeId;
+        currentFen = moveResult.fen;
+        imported++;
       }
+
+      if (imported === 0) return false;
       saveOpenings(newOpenings);
       return true;
     } catch { return false; }

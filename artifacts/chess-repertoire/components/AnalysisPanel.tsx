@@ -245,19 +245,7 @@ export default function AnalysisPanel() {
         <View style={styles.headerLeft}>
           <Feather name="cpu" size={15} color={colors.primary} />
           <Text style={[styles.title, { color: colors.foreground }]}>Analysis</Text>
-
-          <TouchableOpacity
-            style={[styles.engineChip, { backgroundColor: colors.muted + "60", borderColor: colors.border }]}
-            onPress={() => setShowEngineSlot(true)}
-          >
-            <View style={[styles.chipDot, { backgroundColor: chipColor[chipStatus] }]} />
-            <Text style={[styles.engineChipText, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {engineLabel}
-            </Text>
-            <Feather name="chevron-down" size={11} color={colors.mutedForeground} />
-          </TouchableOpacity>
         </View>
-
         <Switch
           value={analysisEnabled}
           onValueChange={setAnalysisEnabled}
@@ -265,6 +253,25 @@ export default function AnalysisPanel() {
           thumbColor={analysisEnabled ? "#fff" : colors.mutedForeground}
         />
       </View>
+
+      {/* ── Engine selector row ───────────────────────────────────────────── */}
+      <TouchableOpacity
+        style={[styles.engineRow, { backgroundColor: colors.muted + "50", borderColor: colors.border }]}
+        onPress={() => setShowEngineSlot(true)}
+        activeOpacity={0.75}
+      >
+        <View style={[styles.engineIconBox, { backgroundColor: colors.primary + "22" }]}>
+          <Feather name="cpu" size={14} color={colors.primary} />
+        </View>
+        <View style={styles.engineRowInfo}>
+          <Text style={[styles.engineRowLabel, { color: colors.mutedForeground }]}>Engine</Text>
+          <Text style={[styles.engineRowName, { color: colors.foreground }]} numberOfLines={1}>
+            {engineLabel}
+          </Text>
+        </View>
+        <View style={[styles.chipDot, { backgroundColor: chipColor[chipStatus] }]} />
+        <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
+      </TouchableOpacity>
 
       {/* ── Status banner (external engine not connected) ─────────────────── */}
       {analysisEnabled && activeSlot === "external" && connectionStatus !== "ready" && (
@@ -379,13 +386,17 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1 },
   title: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  engineChip: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3,
-    maxWidth: 170,
+  // Engine selector row
+  engineRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    marginHorizontal: 10, marginBottom: 8,
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8,
   },
-  chipDot: { width: 7, height: 7, borderRadius: 4 },
-  engineChipText: { fontSize: 11, fontWeight: "600", flexShrink: 1 },
+  engineIconBox: { width: 30, height: 30, borderRadius: 8, justifyContent: "center", alignItems: "center" },
+  engineRowInfo: { flex: 1 },
+  engineRowLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.3 },
+  engineRowName: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
+  chipDot: { width: 8, height: 8, borderRadius: 4 },
   statusBanner: {
     flexDirection: "row", alignItems: "center", gap: 8,
     marginHorizontal: 12, marginBottom: 6,
