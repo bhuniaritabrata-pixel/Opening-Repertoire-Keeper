@@ -55,7 +55,7 @@ interface ArrowProps {
   opacity?: number;
 }
 
-function BestMoveArrow({ from, to, flipped, color = "#00c853", opacity = 0.82 }: ArrowProps) {
+function BestMoveArrow({ from, to, flipped, color = "#1a3d7c", opacity = 0.88 }: ArrowProps) {
   const a = squareCenter(from, flipped);
   const b = squareCenter(to, flipped);
   const dx = b.x - a.x;
@@ -64,9 +64,9 @@ function BestMoveArrow({ from, to, flipped, color = "#00c853", opacity = 0.82 }:
   if (len < 1) return null;
   const ux = dx / len;
   const uy = dy / len;
-  const arrowW = SQUARE_SIZE * 0.18;
-  const headLen = SQUARE_SIZE * 0.42;
-  const headW = SQUARE_SIZE * 0.38;
+  const arrowW = SQUARE_SIZE * 0.10;
+  const headLen = SQUARE_SIZE * 0.32;
+  const headW = SQUARE_SIZE * 0.26;
   // Body: start slightly away from from-center, end before arrowhead
   const x1 = a.x + ux * SQUARE_SIZE * 0.28;
   const y1 = a.y + uy * SQUARE_SIZE * 0.28;
