@@ -75,6 +75,12 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # Pin @react-native/codegen to match react-native@0.81.5 exactly.
+  # The workspace root has expo@55 which hoists codegen@0.83.6, but
+  # react-native@0.81.5 ships its own codegen@0.81.5 and the 0.83.6 version
+  # cannot parse the Flow event types in react-native's src/private directory,
+  # causing a Metro bundling failure (error 500 in Expo Go).
+  "react-native>@react-native/codegen": "0.81.5"
   # replit uses linux-x64 only, we can exclude all other platforms
   "esbuild>@esbuild/darwin-arm64": "-"
   "esbuild>@esbuild/darwin-x64": "-"
