@@ -113,42 +113,150 @@ export function isValidSquare(row: number, col: number): boolean {
   return row >= 0 && row < 8 && col >= 0 && col < 8;
 }
 
-// Returns legal destinations for a piece at a given square
+// Returns true if the square (row, col) is attacked by any piece of attackerColor
+function isSquareAttackedBy(
+  board: (Piece | null)[][],
+  row: number,
+  col: number,
+  attackerColor: PieceColor
+): boolean {
+  // Pawn attacks: white pawns stand one row below and attack diagonally up (row+1 → row),
+  // black pawns stand one row above and attack diagonally down (row-1 → row)
+  const pawnSourceRow = attackerColor === "w" ? row + 1 : row - 1;
+  for (const dc of [-1, 1]) {
+    const pc = col + dc;
+    if (isValidSquare(pawnSourceRow, pc)) {
+      const p = board[pawnSourceRow][pc];
+      if (p && p.type === "p" && p.color === attackerColor) return true;
+    }
+  }
+
+  // Knight attacks
+  for (const [dr, dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
+    const nr = row + dr, nc = col + dc;
+    if (isValidSquare(nr, nc)) {
+      const p = board[nr][nc];
+      if (p && p.type === "n" && p.color === attackerColor) return true;
+    }
+  }
+
+  // Bishop / Queen diagonals
+  for (const [dr, dc] of [[-1,-1],[-1,1],[1,-1],[1,1]]) {
+    let r = row + dr, c = col + dc;
+    while (isValidSquare(r, c)) {
+      const p = board[r][c];
+      if (p) {
+        if (p.color === attackerColor && (p.type === "b" || p.type === "q")) return true;
+        break;
+      }
+      r += dr; c += dc;
+    }
+  }
+
+  // Rook / Queen straight lines
+  for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+    let r = row + dr, c = col + dc;
+    while (isValidSquare(r, c)) {
+      const p = board[r][c];
+      if (p) {
+        if (p.color === attackerColor && (p.type === "r" || p.type === "q")) return true;
+        break;
+      }
+      r += dr; c += dc;
+    }
+  }
+
+  // King adjacency
+  for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
+    const nr = row + dr, nc = col + dc;
+    if (isValidSquare(nr, nc)) {
+      const p = board[nr][nc];
+      if (p && p.type === "k" && p.color === attackerColor) return true;
+    }
+  }
+
+  return false;
+}
+
+// Find king position
+function findKing(board: (Piece | null)[][], color: PieceColor): [number, number] | null {
+  for (let r = 0; r < 8; r++)
+    for (let c = 0; c < 8; c++) {
+      const p = board[r][c];
+      if (p && p.type === "k" && p.color === color) return [r, c];
+    }
+  return null;
+}
+
+// Returns true if 'color' king is currently in check on this board
+function isInCheck(board: (Piece | null)[][], color: PieceColor): boolean {
+  const opp: PieceColor = color === "w" ? "b" : "w";
+  const kp = findKing(board, color);
+  if (!kp) return false;
+  return isSquareAttackedBy(board, kp[0], kp[1], opp);
+}
+
+// Apply a move on a board copy and return the new board (no FEN update, just position)
+function applyMoveOnBoard(
+  board: (Piece | null)[][],
+  fromRow: number,
+  fromCol: number,
+  toRow: number,
+  toCol: number,
+  enPassant: string | null,
+  promotion?: PieceType
+): (Piece | null)[][] {
+  const nb = board.map(row => [...row]);
+  const piece = nb[fromRow][fromCol]!;
+
+  // En passant capture
+  if (piece.type === "p" && enPassant) {
+    const [epR, epC] = squareToCoords(enPassant as Square);
+    if (toRow === epR && toCol === epC) {
+      nb[fromRow][toCol] = null; // remove captured pawn
+    }
+  }
+
+  nb[toRow][toCol] = promotion ? { type: promotion, color: piece.color } : piece;
+  nb[fromRow][fromCol] = null;
+
+  // Move rook when castling
+  if (piece.type === "k") {
+    if (fromRow === 7 && fromCol === 4 && toRow === 7 && toCol === 6) { nb[7][5] = { type: "r", color: "w" }; nb[7][7] = null; }
+    if (fromRow === 7 && fromCol === 4 && toRow === 7 && toCol === 2) { nb[7][3] = { type: "r", color: "w" }; nb[7][0] = null; }
+    if (fromRow === 0 && fromCol === 4 && toRow === 0 && toCol === 6) { nb[0][5] = { type: "r", color: "b" }; nb[0][7] = null; }
+    if (fromRow === 0 && fromCol === 4 && toRow === 0 && toCol === 2) { nb[0][3] = { type: "r", color: "b" }; nb[0][0] = null; }
+  }
+
+  return nb;
+}
+
+// Returns legal destinations for a piece at a given square (fully legal — no moves leaving king in check)
 export function getLegalMoves(fen: string, from: Square): Square[] {
   const state = parseFen(fen);
   const piece = getPieceAtSquare(state, from);
   if (!piece || piece.color !== state.activeColor) return [];
 
   const [fromRow, fromCol] = squareToCoords(from);
-  const destinations: Square[] = [];
   const color = piece.color;
   const opp: PieceColor = color === "w" ? "b" : "w";
+  const pseudo: Square[] = [];
 
-  const addIfValid = (r: number, c: number, mustCapture = false): boolean => {
+  const addIfFree = (r: number, c: number): boolean => {
     if (!isValidSquare(r, c)) return false;
-    const target = state.board[r][c];
-    if (target && target.color === color) return false;
-    if (mustCapture && !target) return false;
-    if (!mustCapture && target && target.color === opp) {
-      destinations.push(coordsToSquare(r, c));
-      return false;
-    }
-    destinations.push(coordsToSquare(r, c));
-    return !target;
+    const t = state.board[r][c];
+    if (t && t.color === color) return false;
+    pseudo.push(coordsToSquare(r, c));
+    return !t;
   };
 
   const addSliding = (dr: number, dc: number) => {
-    let r = fromRow + dr;
-    let c = fromCol + dc;
+    let r = fromRow + dr, c = fromCol + dc;
     while (isValidSquare(r, c)) {
-      const target = state.board[r][c];
-      if (target) {
-        if (target.color !== color) destinations.push(coordsToSquare(r, c));
-        break;
-      }
-      destinations.push(coordsToSquare(r, c));
-      r += dr;
-      c += dc;
+      const t = state.board[r][c];
+      if (t) { if (t.color !== color) pseudo.push(coordsToSquare(r, c)); break; }
+      pseudo.push(coordsToSquare(r, c));
+      r += dr; c += dc;
     }
   };
 
@@ -156,33 +264,24 @@ export function getLegalMoves(fen: string, from: Square): Square[] {
     case "p": {
       const dir = color === "w" ? -1 : 1;
       const startRow = color === "w" ? 6 : 1;
-      // forward
       if (isValidSquare(fromRow + dir, fromCol) && !state.board[fromRow + dir][fromCol]) {
-        destinations.push(coordsToSquare(fromRow + dir, fromCol));
-        if (fromRow === startRow && !state.board[fromRow + 2 * dir][fromCol]) {
-          destinations.push(coordsToSquare(fromRow + 2 * dir, fromCol));
-        }
+        pseudo.push(coordsToSquare(fromRow + dir, fromCol));
+        if (fromRow === startRow && !state.board[fromRow + 2 * dir][fromCol])
+          pseudo.push(coordsToSquare(fromRow + 2 * dir, fromCol));
       }
-      // captures
       for (const dc of [-1, 1]) {
-        const r = fromRow + dir;
-        const c = fromCol + dc;
+        const r = fromRow + dir, c = fromCol + dc;
         if (isValidSquare(r, c)) {
-          const target = state.board[r][c];
-          if (target && target.color === opp) {
-            destinations.push(coordsToSquare(r, c));
-          }
-          // en passant
-          if (state.enPassant === coordsToSquare(r, c)) {
-            destinations.push(coordsToSquare(r, c));
-          }
+          const t = state.board[r][c];
+          if ((t && t.color === opp) || state.enPassant === coordsToSquare(r, c))
+            pseudo.push(coordsToSquare(r, c));
         }
       }
       break;
     }
     case "n": {
-      const moves = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-      for (const [dr, dc] of moves) addIfValid(fromRow + dr, fromCol + dc);
+      for (const [dr, dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]])
+        addIfFree(fromRow + dr, fromCol + dc);
       break;
     }
     case "b": {
@@ -199,26 +298,54 @@ export function getLegalMoves(fen: string, from: Square): Square[] {
       break;
     }
     case "k": {
-      const moves = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
-      for (const [dr, dc] of moves) addIfValid(fromRow + dr, fromCol + dc);
-      // castling (simplified)
-      if (color === "w" && fromRow === 7 && fromCol === 4) {
-        if (state.castling.includes("K") && !state.board[7][5] && !state.board[7][6] && state.board[7][7]?.type === "r")
-          destinations.push("g1");
-        if (state.castling.includes("Q") && !state.board[7][3] && !state.board[7][2] && !state.board[7][1] && state.board[7][0]?.type === "r")
-          destinations.push("c1");
+      for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
+        addIfFree(fromRow + dr, fromCol + dc);
+      // Castling — king must not be in check, must not pass through attacked square, must not land in check
+      if (color === "w" && fromRow === 7 && fromCol === 4 && !isInCheck(state.board, color)) {
+        if (state.castling.includes("K") &&
+            !state.board[7][5] && !state.board[7][6] && state.board[7][7]?.type === "r" &&
+            !isSquareAttackedBy(state.board, 7, 5, opp) && !isSquareAttackedBy(state.board, 7, 6, opp))
+          pseudo.push("g1");
+        if (state.castling.includes("Q") &&
+            !state.board[7][3] && !state.board[7][2] && !state.board[7][1] && state.board[7][0]?.type === "r" &&
+            !isSquareAttackedBy(state.board, 7, 3, opp) && !isSquareAttackedBy(state.board, 7, 2, opp))
+          pseudo.push("c1");
       }
-      if (color === "b" && fromRow === 0 && fromCol === 4) {
-        if (state.castling.includes("k") && !state.board[0][5] && !state.board[0][6] && state.board[0][7]?.type === "r")
-          destinations.push("g8");
-        if (state.castling.includes("q") && !state.board[0][3] && !state.board[0][2] && !state.board[0][1] && state.board[0][0]?.type === "r")
-          destinations.push("c8");
+      if (color === "b" && fromRow === 0 && fromCol === 4 && !isInCheck(state.board, color)) {
+        if (state.castling.includes("k") &&
+            !state.board[0][5] && !state.board[0][6] && state.board[0][7]?.type === "r" &&
+            !isSquareAttackedBy(state.board, 0, 5, opp) && !isSquareAttackedBy(state.board, 0, 6, opp))
+          pseudo.push("g8");
+        if (state.castling.includes("q") &&
+            !state.board[0][3] && !state.board[0][2] && !state.board[0][1] && state.board[0][0]?.type === "r" &&
+            !isSquareAttackedBy(state.board, 0, 3, opp) && !isSquareAttackedBy(state.board, 0, 2, opp))
+          pseudo.push("c8");
       }
       break;
     }
   }
 
-  return destinations;
+  // Filter: only keep moves that don't leave own king in check
+  return pseudo.filter(to => {
+    const [toRow, toCol] = squareToCoords(to as Square);
+    const afterBoard = applyMoveOnBoard(
+      state.board, fromRow, fromCol, toRow, toCol, state.enPassant
+    );
+    return !isInCheck(afterBoard, color);
+  });
+}
+
+// Returns the square of the king that is currently in check, or null
+export function getCheckedKingSquare(fen: string): Square | null {
+  const state = parseFen(fen);
+  const color = state.activeColor;
+  const opp: PieceColor = color === "w" ? "b" : "w";
+  const kp = findKing(state.board, color);
+  if (!kp) return null;
+  if (isSquareAttackedBy(state.board, kp[0], kp[1], opp)) {
+    return coordsToSquare(kp[0], kp[1]) as Square;
+  }
+  return null;
 }
 
 export function applyMove(fen: string, from: Square, to: Square, promotion: PieceType = "q"): MoveResult | null {

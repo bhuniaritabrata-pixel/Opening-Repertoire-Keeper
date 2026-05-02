@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { useBoard } from "@/context/BoardContext";
-import { fenToBoard } from "@/utils/chess";
+import { fenToBoard, getCheckedKingSquare } from "@/utils/chess";
 import { Piece, PieceColor } from "@/types/chess";
 import ChessPiece from "@/components/ChessPiece";
 import PromotionPicker from "@/components/PromotionPicker";
@@ -54,6 +54,7 @@ export default function ChessBoard() {
 
   const board = useMemo(() => fenToBoard(fen), [fen]);
   const activeColor = fen.split(" ")[1] as PieceColor;
+  const checkedKingSquare = useMemo(() => getCheckedKingSquare(fen), [fen]);
 
   const lightColor = boardTheme.id === "custom" ? customLight : boardTheme.lightSquare;
   const darkColor = boardTheme.id === "custom" ? customDark : boardTheme.darkSquare;
@@ -82,6 +83,7 @@ export default function ChessBoard() {
   const isLight = (row: number, col: number) => (row + col) % 2 === 0;
 
   const getSquareOverlay = (sq: string): string | null => {
+    if (checkedKingSquare === sq) return "rgba(200, 0, 0, 0.55)";
     if (selectedSquare === sq) return "rgba(20, 85, 30, 0.5)";
     if (legalMoves.includes(sq)) return "rgba(20, 85, 30, 0.3)";
     if (lastMove && (lastMove.from === sq || lastMove.to === sq)) return "rgba(255, 215, 0, 0.4)";
