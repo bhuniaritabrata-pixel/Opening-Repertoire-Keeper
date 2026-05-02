@@ -79,7 +79,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   const [analysisEnabled, setAnalysisEnabled] = useState(false);
   const [evaluation, setEvaluation] = useState<number | null>(null);
   const [bestMoves, setBestMoves] = useState<string[]>([]);
-  const [evalDepth, setEvalDepth] = useState(18);
+  const [evalDepth, setEvalDepth] = useState(5);
   const [mateIn, setMateIn] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
   const [promotionSquare, setPromotionSquare] = useState<string | null>(null);

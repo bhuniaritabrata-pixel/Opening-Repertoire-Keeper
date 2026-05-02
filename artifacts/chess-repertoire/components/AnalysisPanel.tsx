@@ -13,35 +13,57 @@ import { useEngine } from "@/context/EngineContext";
 import { useColors } from "@/hooks/useColors";
 import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, MoveAnnotation } from "@/types/chess";
 import EngineSlotModal from "@/components/EngineSlotModal";
+import { analyzePosition, formatScore, evalBarPercent, EngineResult } from "@/utils/chessEngine";
 
-function materialEval(fen: string): number {
-  const VALUES: Record<string, number> = {
-    p: -100, n: -320, b: -330, r: -500, q: -900, k: 0,
-    P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0,
-  };
-  let score = 0;
-  for (const ch of fen.split(" ")[0]) {
-    if (ch in VALUES) score += VALUES[ch];
-  }
-  return score;
-}
-
-const MOVE_LABELS: Array<{ threshold: number; annotation: MoveAnnotation }> = [
-  { threshold: -200, annotation: "blunder" },
-  { threshold: -100, annotation: "mistake" },
-  { threshold: -50,  annotation: "inaccuracy" },
-  { threshold: 0,    annotation: "good" },
-  { threshold: 50,   annotation: "great" },
-  { threshold: 100,  annotation: "best" },
+// ─── Move quality classification ─────────────────────────────────────────────
+// Delta is change in eval from White's perspective after opponent's reply (negative = bad for side that moved)
+const MOVE_THRESHOLDS: Array<{ delta: number; annotation: MoveAnnotation }> = [
+  { delta: -250, annotation: "blunder"    },
+  { delta: -100, annotation: "mistake"    },
+  { delta:  -50, annotation: "inaccuracy" },
+  { delta:   50, annotation: "good"       },
+  { delta:  150, annotation: "great"      },
+  { delta:  300, annotation: "best"       },
 ];
 
-function getMoveLabel(delta: number): MoveAnnotation {
-  for (const { threshold, annotation } of MOVE_LABELS) {
-    if (delta <= threshold) return annotation;
+function classifyMove(delta: number): MoveAnnotation {
+  for (const { delta: thr, annotation } of MOVE_THRESHOLDS) {
+    if (delta <= thr) return annotation;
   }
   return "brilliant";
 }
 
+// ─── Eval bar (vertical, White on bottom) ────────────────────────────────────
+function EvalBar({ pct, mateIn, evaluation }: { pct: number; mateIn: number | null; evaluation: number | null }) {
+  const colors = useColors();
+  const whiteH = pct;  // percentage for white
+  const blackH = 100 - pct;
+
+  const label = mateIn !== null
+    ? `M${Math.abs(mateIn)}`
+    : evaluation !== null
+      ? `${evaluation >= 0 ? "+" : ""}${(evaluation / 100).toFixed(1)}`
+      : "0.0";
+
+  return (
+    <View style={styles.evalBarContainer}>
+      <View style={[styles.evalBarTrack, { backgroundColor: "#1a1a1a" }]}>
+        {/* White portion — bottom */}
+        <View
+          style={[
+            styles.evalBarFill,
+            { height: `${whiteH}%`, backgroundColor: "#f0f0f0" },
+          ]}
+        />
+      </View>
+      <Text style={[styles.evalBarLabel, { color: colors.mutedForeground }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function AnalysisPanel() {
   const colors = useColors();
   const {
@@ -54,125 +76,156 @@ export default function AnalysisPanel() {
   } = useBoard();
 
   const {
-    engineType, externalConfig,
+    activeSlot, externalConfig,
     connectionStatus, connectionError,
-    connectEngine, disconnectEngine,
-    engine,
+    connectEngine, engine,
   } = useEngine();
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [currentDepth, setCurrentDepth] = useState(0);
   const [showEngineSlot, setShowEngineSlot] = useState(false);
-  const analysisRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelRef = useRef<(() => void) | null>(null);
   const prevEvalRef = useRef<number>(0);
+  const prevFenRef = useRef<string>("");
 
-  // Auto-connect external engine when analysis is enabled
+  // Auto-connect external engine
   useEffect(() => {
-    if (analysisEnabled && engineType === "external" && connectionStatus === "idle") {
+    if (analysisEnabled && activeSlot === "external" && connectionStatus === "idle") {
       connectEngine();
     }
-  }, [analysisEnabled, engineType, connectionStatus]);
+  }, [analysisEnabled, activeSlot, connectionStatus]);
 
+  // Main analysis effect
   useEffect(() => {
+    // Cancel any running search
+    cancelRef.current?.();
+    cancelRef.current = null;
+
     if (!analysisEnabled) {
       setEvaluation(null);
       setMateIn(null);
       setBestMoves([]);
       setIsAnalyzing(false);
-      if (analysisRef.current) clearTimeout(analysisRef.current);
+      setCurrentDepth(0);
       return;
     }
 
-    setIsAnalyzing(true);
-    if (analysisRef.current) clearTimeout(analysisRef.current);
+    const isNewPosition = fen !== prevFenRef.current;
+    prevFenRef.current = fen;
 
-    // Use external UCI engine if connected
-    if (engineType === "external" && engine?.isReady()) {
+    // ── External UCI engine ───────────────────────────────────────────────
+    if (activeSlot === "external" && engine?.isReady()) {
+      setIsAnalyzing(true);
       engine.analyze(fen, evalDepth, (result) => {
-        if (result.score !== null) setEvaluation(result.score);
-        if (result.mate !== null) { setMateIn(result.mate); setEvaluation(null); }
-
+        if (result.score !== null) {
+          setEvaluation(result.score);
+          setCurrentDepth(result.depth);
+        }
+        if (result.mate !== null) {
+          setMateIn(result.mate);
+          setEvaluation(null);
+        }
         if (result.pv.length > 0) {
           const evalStr = result.mate !== null
             ? `M${Math.abs(result.mate)}`
-            : `${(result.score ?? 0) > 0 ? "+" : ""}${((result.score ?? 0) / 100).toFixed(2)}`;
-          setBestMoves([`Depth ${result.depth}  ${evalStr}  Best: ${result.pv.slice(0, 3).join(" ")}`]);
+            : `${(result.score ?? 0) >= 0 ? "+" : ""}${((result.score ?? 0) / 100).toFixed(2)}`;
+          setBestMoves([`${evalStr}  ${result.pv.slice(0, 4).join(" ")}`]);
         }
-
-        const delta = (result.score ?? prevEvalRef.current) - prevEvalRef.current;
-        prevEvalRef.current = result.score ?? prevEvalRef.current;
-        if (currentNodeId && Math.abs(delta) > 30) {
-          annotateNode(currentNodeId, getMoveLabel(delta));
+        if (isNewPosition && currentNodeId) {
+          const absEval = result.score ?? 0;
+          const delta = absEval - prevEvalRef.current;
+          prevEvalRef.current = absEval;
+          if (Math.abs(delta) > 30) annotateNode(currentNodeId, classifyMove(delta));
         }
         setIsAnalyzing(false);
       });
       return;
     }
 
-    // Fallback: built-in material evaluation
-    analysisRef.current = setTimeout(() => {
-      const matEval = materialEval(fen);
-      const positional = (Math.random() - 0.5) * 20;
-      const newEval = matEval + positional;
+    // ── Built-in JS engine (iterative deepening alpha-beta) ───────────────
+    setIsAnalyzing(true);
+    setCurrentDepth(0);
 
-      setEvaluation(newEval);
-      setMateIn(null);
+    const cancel = analyzePosition(fen, evalDepth, (result: EngineResult) => {
+      setCurrentDepth(result.depth);
+      setCurrentDepth(result.depth);
 
-      const delta = newEval - prevEvalRef.current;
-      prevEvalRef.current = newEval;
-      if (currentNodeId && Math.abs(delta) > 30) {
-        annotateNode(currentNodeId, getMoveLabel(delta));
+      if (result.mate !== null) {
+        setMateIn(result.mate);
+        setEvaluation(null);
+      } else {
+        setEvaluation(result.score);
+        setMateIn(null);
       }
-      setBestMoves(["+0.00  Best: keep developing pieces"]);
-      setIsAnalyzing(false);
-    }, 600);
 
-    return () => { if (analysisRef.current) clearTimeout(analysisRef.current); };
-  }, [fen, analysisEnabled, currentNodeId, engineType, connectionStatus]);
+      // Best move line
+      const evalStr = result.mate !== null
+        ? `M${Math.abs(result.mate)}`
+        : `${result.score >= 0 ? "+" : ""}${(result.score / 100).toFixed(2)}`;
+      setBestMoves([`${evalStr}  Best: ${result.bestMove}  (d${result.depth})`]);
 
+      // Annotate move quality when position changes
+      if (isNewPosition && currentNodeId && result.depth >= Math.min(evalDepth, 4)) {
+        const delta = result.score - prevEvalRef.current;
+        prevEvalRef.current = result.score;
+        if (Math.abs(delta) > 25) {
+          annotateNode(currentNodeId, classifyMove(delta));
+        }
+      }
+
+      if (result.depth >= evalDepth) {
+        setIsAnalyzing(false);
+      }
+    });
+
+    cancelRef.current = cancel;
+
+    return () => {
+      cancel();
+      cancelRef.current = null;
+    };
+  }, [fen, analysisEnabled, evalDepth, activeSlot, connectionStatus]);
+
+  // ─── Derived display values ────────────────────────────────────────────────
+  const pct = evalBarPercent(evaluation ?? 0, mateIn);
   const currentAnnotation = currentPath.length > 0
     ? currentPath[currentPath.length - 1]?.move.annotation
     : undefined;
 
-  const engineName = engineType === "external" && externalConfig
-    ? externalConfig.name
-    : "Built-in";
+  const engineLabel =
+    activeSlot === "external" && externalConfig
+      ? externalConfig.name
+      : activeSlot === "oex"
+        ? "OEX Engine"
+        : "Built-in";
 
-  const extStatusColor: Record<string, string> = {
-    idle:         colors.mutedForeground,
-    connecting:   colors.primary,
-    ready:        "#4caf50",
-    error:        colors.destructive,
+  const chipStatus = activeSlot === "external"
+    ? connectionStatus
+    : "ready";
+
+  const chipColor: Record<string, string> = {
+    idle: colors.mutedForeground,
+    connecting: colors.primary,
+    ready: activeSlot === "builtin" ? colors.mutedForeground : "#4caf50",
+    error: colors.destructive,
     disconnected: colors.destructive,
-  };
-
-  const extStatusIcon: Record<string, string> = {
-    idle:         "zap",
-    connecting:   "loader",
-    ready:        "check-circle",
-    error:        "alert-circle",
-    disconnected: "wifi-off",
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      {/* Header */}
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Feather name="cpu" size={16} color={colors.primary} />
+          <Feather name="cpu" size={15} color={colors.primary} />
           <Text style={[styles.title, { color: colors.foreground }]}>Analysis</Text>
 
-          {/* Engine selector chip */}
           <TouchableOpacity
             style={[styles.engineChip, { backgroundColor: colors.muted + "60", borderColor: colors.border }]}
             onPress={() => setShowEngineSlot(true)}
           >
-            <Feather
-              name={extStatusIcon[engineType === "external" ? connectionStatus : "idle"] as any}
-              size={11}
-              color={engineType === "external" ? extStatusColor[connectionStatus] : colors.mutedForeground}
-            />
+            <View style={[styles.chipDot, { backgroundColor: chipColor[chipStatus] }]} />
             <Text style={[styles.engineChipText, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {engineName}
+              {engineLabel}
             </Text>
             <Feather name="chevron-down" size={11} color={colors.mutedForeground} />
           </TouchableOpacity>
@@ -186,74 +239,86 @@ export default function AnalysisPanel() {
         />
       </View>
 
-      {/* External engine status banner */}
-      {analysisEnabled && engineType === "external" && connectionStatus !== "ready" && (
+      {/* ── Status banner (external engine not connected) ─────────────────── */}
+      {analysisEnabled && activeSlot === "external" && connectionStatus !== "ready" && (
         <TouchableOpacity
           style={[styles.statusBanner, {
-            backgroundColor: extStatusColor[connectionStatus] + "15",
-            borderColor: extStatusColor[connectionStatus] + "44",
+            backgroundColor: chipColor[connectionStatus] + "15",
+            borderColor: chipColor[connectionStatus] + "44",
           }]}
-          onPress={connectionStatus === "idle" || connectionStatus === "disconnected" || connectionStatus === "error"
-            ? connectEngine
-            : undefined}
+          onPress={connectionStatus !== "connecting" ? connectEngine : undefined}
         >
-          <Feather
-            name={extStatusIcon[connectionStatus] as any}
-            size={13}
-            color={extStatusColor[connectionStatus]}
-          />
-          <Text style={[styles.statusBannerText, { color: extStatusColor[connectionStatus] }]}>
+          <Feather name="wifi-off" size={13} color={chipColor[connectionStatus]} />
+          <Text style={[styles.statusBannerText, { color: chipColor[connectionStatus] }]}>
             {connectionStatus === "connecting" && "Connecting to engine…"}
-            {connectionStatus === "idle"       && "Tap to connect external engine"}
+            {connectionStatus === "idle" && "Tap to connect external engine"}
             {connectionStatus === "disconnected" && "Disconnected — tap to reconnect"}
-            {connectionStatus === "error"      && `Error: ${connectionError ?? "connection failed"} — tap to retry`}
+            {connectionStatus === "error" && `Error: ${connectionError ?? "connection failed"} — tap to retry`}
           </Text>
         </TouchableOpacity>
       )}
 
+      {/* ── Body ──────────────────────────────────────────────────────────── */}
       {analysisEnabled && (
         <View style={styles.body}>
-          {isAnalyzing ? (
-            <View style={styles.analyzing}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={[styles.analyzingText, { color: colors.mutedForeground }]}>
-                {engineType === "external" && engine?.isReady() ? `Analyzing (depth ${evalDepth})…` : "Analyzing…"}
-              </Text>
-            </View>
-          ) : (
-            <>
-              {evaluation !== null && (
-                <View style={styles.evalRow}>
-                  <Text style={[styles.evalLabel, { color: colors.mutedForeground }]}>Eval:</Text>
-                  <Text style={[styles.evalValue, { color: colors.primary }]}>
-                    {mateIn !== null
-                      ? `M${Math.abs(mateIn)}`
-                      : `${evaluation > 0 ? "+" : ""}${(evaluation / 100).toFixed(2)}`}
+          {/* Eval bar + score row */}
+          <View style={styles.evalSection}>
+            <EvalBar pct={pct} mateIn={mateIn} evaluation={evaluation} />
+
+            <View style={styles.evalRight}>
+              {isAnalyzing && currentDepth === 0 ? (
+                <View style={styles.analyzingRow}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={[styles.analyzingText, { color: colors.mutedForeground }]}>
+                    Thinking…
                   </Text>
-                  {currentAnnotation && (
-                    <View style={[styles.annotationBadge, { backgroundColor: ANNOTATION_COLORS[currentAnnotation] + "22" }]}>
-                      <Text style={[styles.annotationText, { color: ANNOTATION_COLORS[currentAnnotation] }]}>
-                        {ANNOTATION_SYMBOLS[currentAnnotation]}{" "}
-                        {currentAnnotation.charAt(0).toUpperCase() + currentAnnotation.slice(1)}
-                      </Text>
-                    </View>
-                  )}
                 </View>
-              )}
+              ) : (
+                <>
+                  {/* Score */}
+                  <View style={styles.scoreRow}>
+                    <Text style={[styles.scoreValue, { color: colors.foreground }]}>
+                      {mateIn !== null
+                        ? `M${Math.abs(mateIn)}`
+                        : evaluation !== null
+                          ? `${evaluation >= 0 ? "+" : ""}${(evaluation / 100).toFixed(2)}`
+                          : "+0.00"}
+                    </Text>
+                    {isAnalyzing && (
+                      <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 6 }} />
+                    )}
+                  </View>
 
-              {bestMoves.length > 0 && (
-                <Text style={[styles.bestMove, { color: colors.mutedForeground }]}>
-                  {bestMoves[0]}
-                </Text>
-              )}
-            </>
-          )}
+                  {/* Depth + annotation */}
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.depthText, { color: colors.mutedForeground }]}>
+                      depth {currentDepth}
+                    </Text>
+                    {currentAnnotation && (
+                      <View style={[styles.annotationBadge, { backgroundColor: ANNOTATION_COLORS[currentAnnotation] + "22" }]}>
+                        <Text style={[styles.annotationText, { color: ANNOTATION_COLORS[currentAnnotation] }]}>
+                          {ANNOTATION_SYMBOLS[currentAnnotation]} {currentAnnotation}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
 
-          {/* Depth row */}
+                  {/* Best move line */}
+                  {bestMoves.length > 0 && (
+                    <Text style={[styles.pvLine, { color: colors.mutedForeground }]} numberOfLines={1}>
+                      {bestMoves[0]}
+                    </Text>
+                  )}
+                </>
+              )}
+            </View>
+          </View>
+
+          {/* Depth selector */}
           <View style={styles.depthRow}>
-            <Text style={[styles.depthLabel, { color: colors.mutedForeground }]}>Depth: {evalDepth}</Text>
-            <View style={styles.depthControls}>
-              {[10, 15, 18, 20].map(d => (
+            <Text style={[styles.depthLabel, { color: colors.mutedForeground }]}>Depth</Text>
+            <View style={styles.depthBtns}>
+              {[3, 4, 5, 6].map(d => (
                 <TouchableOpacity
                   key={d}
                   style={[styles.depthBtn, {
@@ -262,7 +327,9 @@ export default function AnalysisPanel() {
                   }]}
                   onPress={() => setEvalDepth(d)}
                 >
-                  <Text style={[styles.depthBtnText, { color: evalDepth === d ? colors.primaryForeground : colors.mutedForeground }]}>
+                  <Text style={[styles.depthBtnText, {
+                    color: evalDepth === d ? colors.primaryForeground : colors.mutedForeground,
+                  }]}>
                     {d}
                   </Text>
                 </TouchableOpacity>
@@ -286,10 +353,11 @@ const styles = StyleSheet.create({
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1 },
   title: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold" },
   engineChip: {
-    flexDirection: "row", alignItems: "center", gap: 4,
+    flexDirection: "row", alignItems: "center", gap: 5,
     borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3,
-    maxWidth: 160,
+    maxWidth: 170,
   },
+  chipDot: { width: 7, height: 7, borderRadius: 4 },
   engineChipText: { fontSize: 11, fontWeight: "600", flexShrink: 1 },
   statusBanner: {
     flexDirection: "row", alignItems: "center", gap: 8,
@@ -298,18 +366,30 @@ const styles = StyleSheet.create({
     borderRadius: 8, borderWidth: 1,
   },
   statusBannerText: { fontSize: 12, fontWeight: "600", flex: 1 },
-  body: { paddingHorizontal: 12, paddingBottom: 12, gap: 8 },
-  analyzing: { flexDirection: "row", alignItems: "center", gap: 8 },
+  body: { paddingHorizontal: 10, paddingBottom: 10, gap: 8 },
+  // Eval section
+  evalSection: { flexDirection: "row", alignItems: "stretch", gap: 10 },
+  evalBarContainer: { alignItems: "center", gap: 4 },
+  evalBarTrack: {
+    width: 14, height: 80, borderRadius: 7, overflow: "hidden",
+    flexDirection: "column", justifyContent: "flex-end",
+  },
+  evalBarFill: { width: "100%", borderRadius: 7 },
+  evalBarLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 0.3 },
+  evalRight: { flex: 1, justifyContent: "center", gap: 4 },
+  analyzingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   analyzingText: { fontSize: 13 },
-  evalRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  evalLabel: { fontSize: 13 },
-  evalValue: { fontSize: 18, fontWeight: "800", fontFamily: "Inter_700Bold" },
-  annotationBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  annotationText: { fontSize: 12, fontWeight: "700" },
-  bestMove: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  depthRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
-  depthLabel: { fontSize: 12, minWidth: 60 },
-  depthControls: { flexDirection: "row", gap: 6 },
-  depthBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
+  scoreRow: { flexDirection: "row", alignItems: "center" },
+  scoreValue: { fontSize: 26, fontWeight: "800", fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  depthText: { fontSize: 12 },
+  annotationBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
+  annotationText: { fontSize: 11, fontWeight: "700" },
+  pvLine: { fontSize: 11, fontFamily: "Inter_400Regular", letterSpacing: 0.1 },
+  // Depth row
+  depthRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  depthLabel: { fontSize: 12, minWidth: 40 },
+  depthBtns: { flexDirection: "row", gap: 5 },
+  depthBtn: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6, borderWidth: 1 },
   depthBtnText: { fontSize: 12, fontWeight: "600" },
 });
