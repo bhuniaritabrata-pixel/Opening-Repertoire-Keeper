@@ -3,7 +3,6 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
-  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -295,13 +294,6 @@ export default function EngineSlotModal({ visible, onClose }: Props) {
                     ? "Tap Scan above to auto-detect installed engines, or add one manually."
                     : "Add an OEX engine manually. In a signed APK, Scan detects installed engines automatically."}
                 </Text>
-                <TouchableOpacity
-                  style={[styles.playStoreLink, { borderColor: OEX_GREEN }]}
-                  onPress={() => Linking.openURL("https://play.google.com/store/apps/details?id=com.calc.stockfish")}
-                >
-                  <Feather name="external-link" size={13} color={OEX_GREEN} />
-                  <Text style={[styles.playStoreLinkText, { color: OEX_GREEN }]}>Get Stockfish on Play Store</Text>
-                </TouchableOpacity>
               </View>
             )}
 
@@ -684,9 +676,6 @@ const styles = StyleSheet.create({
   },
   emptyOexTitle: { fontSize: 14, fontWeight: "700", marginBottom: 4 },
   emptyOexSub: { fontSize: 12, textAlign: "center", lineHeight: 18, marginBottom: 12 },
-  playStoreLink: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1.5, borderRadius: 8, paddingVertical: 7, paddingHorizontal: 12 },
-  playStoreLinkText: { fontSize: 12, fontWeight: "600" },
-
   addOexTrigger: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     borderWidth: 1.5, borderRadius: 12, borderStyle: "dashed",
