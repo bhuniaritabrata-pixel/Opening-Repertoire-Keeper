@@ -68,7 +68,7 @@ catalogs:
       version: 3.25.76
 
 overrides:
-  react-native>@react-native/codegen: 0.81.5
+  '@react-native/codegen': 0.81.5
   esbuild>@esbuild/darwin-arm64: '-'
   esbuild>@esbuild/darwin-x64: '-'
   esbuild>@esbuild/freebsd-arm64: '-'
