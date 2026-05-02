@@ -188,15 +188,9 @@ export default function ChessBoard() {
               // Hide piece at from-square while animating
               const isAnimatingFrom = animPiece?.fromSq === sq;
 
-              // Annotation info for this square
+              // Annotation badge on destination square only — no square tinting
               const annOnDest = squareAnnotations[sq];
-              const annFromEntry = Object.values(squareAnnotations).find(a => a.from === sq);
-              const isAnnFrom = !!annFromEntry && !annOnDest;
-              const annColor: string | undefined = annOnDest
-                ? ANNOTATION_COLORS[annOnDest.annotation]
-                : annFromEntry
-                  ? ANNOTATION_COLORS[annFromEntry.annotation]
-                  : undefined;
+              const annColor = annOnDest ? ANNOTATION_COLORS[annOnDest.annotation] : undefined;
 
               return (
                 <TouchableOpacity
@@ -212,14 +206,6 @@ export default function ChessBoard() {
                   {overlay && (
                     <View style={[StyleSheet.absoluteFill, { backgroundColor: overlay }]} />
                   )}
-                  {/* Annotation destination tint */}
-                  {annOnDest && !overlay && (
-                    <View style={[StyleSheet.absoluteFill, { backgroundColor: annColor + "55" }]} />
-                  )}
-                  {/* Annotation source tint (lighter) */}
-                  {isAnnFrom && !annOnDest && !overlay && (
-                    <View style={[StyleSheet.absoluteFill, { backgroundColor: annColor + "28" }]} />
-                  )}
                   {isLegalDot && (
                     <View style={styles.legalDot} />
                   )}
@@ -231,12 +217,12 @@ export default function ChessBoard() {
                   )}
                   {col === 0 && renderRankLabel(row)}
                   {row === 7 && renderFileLabel(col)}
-                  {/* Annotation badge — bottom-right corner of destination square */}
+                  {/* Annotation badge — top-right corner, above piece, Chessis style */}
                   {annOnDest && (
-                    <View style={[styles.annBadge, { backgroundColor: annColor }]}>
+                    <View style={[styles.annBadge, { backgroundColor: annColor, borderColor: "rgba(0,0,0,0.25)" }]}>
                       <Text style={styles.annBadgeText}>
                         {annOnDest.annotation === "book"
-                          ? "B"
+                          ? "📖"
                           : ANNOTATION_SYMBOLS[annOnDest.annotation]}
                       </Text>
                     </View>
@@ -301,20 +287,26 @@ const styles = StyleSheet.create({
   },
   annBadge: {
     position: "absolute",
-    bottom: 2,
-    right: 2,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 2,
+    top: 1,
+    right: 1,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
     justifyContent: "center",
     alignItems: "center",
-    zIndex: 10,
+    zIndex: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.35,
+    shadowRadius: 2,
+    elevation: 4,
   },
   annBadgeText: {
     color: "#fff",
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "900",
-    lineHeight: 11,
+    lineHeight: 12,
+    textAlign: "center",
   },
 });
