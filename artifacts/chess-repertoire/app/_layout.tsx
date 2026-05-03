@@ -15,6 +15,12 @@ import AnimatedSplash from "@/components/AnimatedSplash";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RepertoireProvider } from "@/context/RepertoireContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
+import { preloadPieces } from "@/utils/PieceCache";
+
+// Kick off piece SVG fetch immediately — long before the board is rendered.
+// This is a fire-and-forget; the cache will be populated by the time
+// the user navigates to a board screen.
+preloadPieces();
 
 SplashScreen.preventAutoHideAsync();
 

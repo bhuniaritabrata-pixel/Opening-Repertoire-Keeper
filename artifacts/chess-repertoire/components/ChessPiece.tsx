@@ -1,43 +1,34 @@
 import React, { memo } from "react";
 import { View, StyleSheet } from "react-native";
-import { SvgUri } from "react-native-svg";
+import { SvgUri, SvgXml } from "react-native-svg";
 import { Piece } from "@/types/chess";
+import { getCachedPieceSvg } from "@/utils/PieceCache";
 
 const BASE_URL = "https://lichess1.org/assets/piece/cburnett";
-
-const PIECE_URLS: Record<string, string> = {
-  wk: `${BASE_URL}/wK.svg`,
-  wq: `${BASE_URL}/wQ.svg`,
-  wr: `${BASE_URL}/wR.svg`,
-  wb: `${BASE_URL}/wB.svg`,
-  wn: `${BASE_URL}/wN.svg`,
-  wp: `${BASE_URL}/wP.svg`,
-  bk: `${BASE_URL}/bK.svg`,
-  bq: `${BASE_URL}/bQ.svg`,
-  br: `${BASE_URL}/bR.svg`,
-  bb: `${BASE_URL}/bB.svg`,
-  bn: `${BASE_URL}/bN.svg`,
-  bp: `${BASE_URL}/bP.svg`,
-};
 
 interface ChessPieceProps {
   piece: Piece;
   size: number;
 }
 
-// memo: a piece only re-renders when its type, color, or size actually changes.
-// Since BoardSquare is already memoized with no selection deps, this is an
-// extra guard ensuring the SVG is never re-fetched unnecessarily.
 export default memo(function ChessPiece({ piece, size }: ChessPieceProps) {
-  const key = piece.color + piece.type;
-  const uri = PIECE_URLS[key];
-  if (!uri) return null;
+  const key    = piece.color + piece.type;
+  const cached = getCachedPieceSvg(key);
+  const uri    = `${BASE_URL}/${piece.color === "w" ? "w" : "b"}${piece.type.toUpperCase()}.svg`;
+
   return (
     <View style={[styles.container, { width: size, height: size }]}>
-      <SvgUri uri={uri} width={size} height={size} />
+      {cached
+        ? <SvgXml xml={cached} width={size} height={size} />
+        : <SvgUri uri={uri}   width={size} height={size} />}
     </View>
   );
-});
+},
+(prev, next) =>
+  prev.piece.type  === next.piece.type  &&
+  prev.piece.color === next.piece.color &&
+  prev.size        === next.size,
+);
 
 const styles = StyleSheet.create({
   container: { justifyContent: "center", alignItems: "center" },
