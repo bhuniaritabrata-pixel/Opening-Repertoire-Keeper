@@ -7,21 +7,57 @@ import {
 } from "@expo-google-fonts/inter";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import AnimatedSplash from "@/components/AnimatedSplash";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RepertoireProvider } from "@/context/RepertoireContext";
+import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 
 SplashScreen.preventAutoHideAsync();
 
-function RootLayoutNav() {
+// Module-level flag: animated splash plays once per process lifetime
+let splashHasPlayed = false;
+
+function AppContent() {
+  const { splashType } = useTheme();
+  const [showAnimatedSplash, setShowAnimatedSplash] = useState(
+    splashType === "animated" && !splashHasPlayed
+  );
+
+  // Keep `showAnimatedSplash` in sync if splashType loads async from storage.
+  // We only want to show it if it hasn't played yet.
+  const didInitRef = useRef(false);
+  useEffect(() => {
+    if (!didInitRef.current) {
+      didInitRef.current = true;
+      if (splashType === "animated" && !splashHasPlayed) {
+        setShowAnimatedSplash(true);
+      }
+    }
+  }, [splashType]);
+
+  const handleSplashFinish = () => {
+    splashHasPlayed = true;
+    setShowAnimatedSplash(false);
+  };
+
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="board/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="board/[id]"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
+      </Stack>
+
+      {showAnimatedSplash && (
+        <AnimatedSplash onFinish={handleSplashFinish} />
+      )}
+    </>
   );
 }
 
@@ -39,17 +75,17 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
-
   return (
     <SafeAreaProvider>
-      <ErrorBoundary>
-        <RepertoireProvider>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <RootLayoutNav />
-          </GestureHandlerRootView>
-        </RepertoireProvider>
-      </ErrorBoundary>
+      <ThemeProvider>
+        <ErrorBoundary>
+          <RepertoireProvider>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              {(fontsLoaded || fontError) ? <AppContent /> : null}
+            </GestureHandlerRootView>
+          </RepertoireProvider>
+        </ErrorBoundary>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
