@@ -86,8 +86,9 @@ function BoardScreen() {
     setEditingNote(false);
   }, [currentNodeId, noteNode, draftNote]);
 
-  const handleImportPgn = useCallback((pgn: string) => {
-    if (opening) importPgn(opening.id, pgn);
+  const handleImportPgn = useCallback((pgn: string): boolean => {
+    if (opening) return importPgn(opening.id, pgn);
+    return false;
   }, [opening, importPgn]);
 
   if (!opening) {
