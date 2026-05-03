@@ -19,116 +19,92 @@ const { width } = Dimensions.get("window");
 const BOARD_SIZE = Math.min(width - 16, 400);
 const SQUARE_SIZE = BOARD_SIZE / 8;
 
-const LONG_PRESS_MS = 320; // hold threshold to enter arrow-draw mode
-const TAP_MOVE_PX = 18;    // max finger drift to count as a tap
+const LONG_PRESS_MS = 320;
+const TAP_MOVE_PX   = 18;
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface AnimPiece {
   piece: Piece;
-  fromSq: string;
-  toSq: string;
-  fromX: number;
-  fromY: number;
-  toX: number;
-  toY: number;
+  fromSq: string; toSq: string;
+  fromX: number; fromY: number;
+  toX: number; toY: number;
 }
-
+interface UserArrow { from: string; to: string }
 interface SquareData {
-  sq: string;
-  piece: Piece | null;
-  isLight: boolean;
-  overlay: string | null;
-  isLegalDot: boolean;
-  isLegalCapture: boolean;
+  sq: string; piece: Piece | null;
+  isLight: boolean; overlay: string | null;
+  isLegalDot: boolean; isLegalCapture: boolean;
   isAnimatingFrom: boolean;
   annOnDest: { annotation: MoveAnnotation; from: string } | undefined;
-  rank: number;
-  file: string;
-  showRankLabel: boolean;
-  showFileLabel: boolean;
+  rank: number; file: string;
+  showRankLabel: boolean; showFileLabel: boolean;
 }
 
-interface UserArrow { from: string; to: string }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function squareToRC(sq: string, flipped: boolean): { row: number; col: number } {
-  const col = sq.charCodeAt(0) - "a".charCodeAt(0);
+// ─── Pure helpers (no hooks, no closures over state) ─────────────────────────
+function squareToRC(sq: string, flipped: boolean) {
+  const col  = sq.charCodeAt(0) - 97; // 'a'
   const rank = parseInt(sq[1]) - 1;
-  const row = 7 - rank;
-  if (flipped) return { row: 7 - row, col: 7 - col };
-  return { row, col };
+  const row  = 7 - rank;
+  return flipped ? { row: 7 - row, col: 7 - col } : { row, col };
 }
 
-function squareCenter(sq: string, flipped: boolean): { x: number; y: number } {
-  const col = sq.charCodeAt(0) - "a".charCodeAt(0);
+function squareCenter(sq: string, flipped: boolean) {
+  const col  = sq.charCodeAt(0) - 97;
   const rank = parseInt(sq[1]) - 1;
-  const row = 7 - rank;
+  const row  = 7 - rank;
   const c = flipped ? 7 - col : col;
   const r = flipped ? 7 - row : row;
   return { x: (c + 0.5) * SQUARE_SIZE, y: (r + 0.5) * SQUARE_SIZE };
 }
 
+// Board-relative px → square name.  Returns null if out of bounds.
 function posToSq(px: number, py: number, flipped: boolean): string | null {
   const col = Math.floor(px / SQUARE_SIZE);
   const row = Math.floor(py / SQUARE_SIZE);
   if (col < 0 || col > 7 || row < 0 || row > 7) return null;
   const c = flipped ? 7 - col : col;
   const r = flipped ? row : 7 - row;
-  return String.fromCharCode("a".charCodeAt(0) + c) + (r + 1);
+  return String.fromCharCode(97 + c) + (r + 1);
 }
 
-// ─── Arrow SVG ────────────────────────────────────────────────────────────────
+// ─── Arrow SVG (memoized, pure) ───────────────────────────────────────────────
 const Arrow = memo(function Arrow({
   from, to, flipped, color, thin = false,
-}: {
-  from: string; to: string; flipped: boolean; color: string; thin?: boolean;
-}) {
+}: { from: string; to: string; flipped: boolean; color: string; thin?: boolean }) {
   const a = squareCenter(from, flipped);
   const b = squareCenter(to, flipped);
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < 1) return null;
-  const ux = dx / len;
-  const uy = dy / len;
-
+  const ux = dx / len, uy = dy / len;
   const arrowW  = thin ? SQUARE_SIZE * 0.065 : SQUARE_SIZE * 0.12;
   const headLen = thin ? SQUARE_SIZE * 0.22  : SQUARE_SIZE * 0.34;
   const headW   = thin ? SQUARE_SIZE * 0.17  : SQUARE_SIZE * 0.28;
   const tailGap = SQUARE_SIZE * 0.28;
-
-  const x1 = a.x + ux * tailGap;
-  const y1 = a.y + uy * tailGap;
-  const x2 = b.x - ux * headLen;
-  const y2 = b.y - uy * headLen;
-  const px = -uy;
-  const py =  ux;
-
+  const x1 = a.x + ux * tailGap, y1 = a.y + uy * tailGap;
+  const x2 = b.x - ux * headLen, y2 = b.y - uy * headLen;
+  const px = -uy, py2 = ux;
   const bodyPts = [
-    `${x1 + px * arrowW},${y1 + py * arrowW}`,
-    `${x2 + px * arrowW},${y2 + py * arrowW}`,
-    `${x2 - px * arrowW},${y2 - py * arrowW}`,
-    `${x1 - px * arrowW},${y1 - py * arrowW}`,
+    `${x1 + px * arrowW},${y1 + py2 * arrowW}`,
+    `${x2 + px * arrowW},${y2 + py2 * arrowW}`,
+    `${x2 - px * arrowW},${y2 - py2 * arrowW}`,
+    `${x1 - px * arrowW},${y1 - py2 * arrowW}`,
   ].join(" ");
   const headPts = [
     `${b.x},${b.y}`,
-    `${x2 + px * headW},${y2 + py * headW}`,
-    `${x2 - px * headW},${y2 - py * headW}`,
+    `${x2 + px * headW},${y2 + py2 * headW}`,
+    `${x2 - px * headW},${y2 - py2 * headW}`,
   ].join(" ");
-
   return (
-    <Svg
-      width={BOARD_SIZE}
-      height={BOARD_SIZE}
-      style={StyleSheet.absoluteFill}
-      pointerEvents="none"
-    >
+    <Svg width={BOARD_SIZE} height={BOARD_SIZE} style={StyleSheet.absoluteFill} pointerEvents="none">
       <Polygon points={bodyPts} fill={color} fillOpacity={0.85} />
       <Polygon points={headPts} fill={color} fillOpacity={0.85} />
     </Svg>
   );
 });
 
-// ─── Single memoized square (View only — touches handled by PanResponder) ─────
+// ─── Single memoized square (View only — touches handled by overlay) ──────────
 const BoardSquare = memo(function BoardSquare({
   sq, piece, isLight, lightColor, darkColor,
   overlay, isLegalDot, isLegalCapture, isAnimatingFrom,
@@ -137,15 +113,14 @@ const BoardSquare = memo(function BoardSquare({
   const bg = isLight ? lightColor : darkColor;
   const labelColor = isLight ? darkColor : lightColor;
   const annColor = annOnDest ? ANNOTATION_COLORS[annOnDest.annotation] : undefined;
-
   return (
     <View style={[styles.square, { width: SQUARE_SIZE, height: SQUARE_SIZE, backgroundColor: bg }]}>
-      {overlay && <View style={[StyleSheet.absoluteFill, { backgroundColor: overlay }]} />}
-      {isLegalDot && <View style={styles.legalDot} />}
-      {isLegalCapture && <View style={[styles.legalCapture, { borderColor: "rgba(20, 85, 30, 0.5)" }]} />}
+      {overlay        && <View style={[StyleSheet.absoluteFill, { backgroundColor: overlay }]} />}
+      {isLegalDot     && <View style={styles.legalDot} />}
+      {isLegalCapture && <View style={[styles.legalCapture, { borderColor: "rgba(20,85,30,0.5)" }]} />}
       {piece && !isAnimatingFrom && <ChessPiece piece={piece} size={SQUARE_SIZE * 0.9} />}
-      {showRankLabel && <Text style={[styles.rankLabel, { color: labelColor }]}>{rank}</Text>}
-      {showFileLabel && <Text style={[styles.fileLabel, { color: labelColor }]}>{file}</Text>}
+      {showRankLabel  && <Text style={[styles.rankLabel,  { color: labelColor }]}>{rank}</Text>}
+      {showFileLabel  && <Text style={[styles.fileLabel,  { color: labelColor }]}>{file}</Text>}
       {annOnDest && (
         <View style={[styles.annBadge, { backgroundColor: annColor, borderColor: "rgba(0,0,0,0.25)" }]}>
           <Text style={styles.annBadgeText}>
@@ -157,7 +132,7 @@ const BoardSquare = memo(function BoardSquare({
   );
 });
 
-// ─── Main board component ─────────────────────────────────────────────────────
+// ─── Main board ───────────────────────────────────────────────────────────────
 export default function ChessBoard() {
   const {
     fen, flipped, selectedSquare, legalMovesSet,
@@ -169,20 +144,20 @@ export default function ChessBoard() {
   const board      = useMemo(() => fenToBoard(fen), [fen]);
   const activeColor = fen.split(" ")[1] as PieceColor;
   const checkedKingSquare = useMemo(() => getCheckedKingSquare(fen), [fen]);
-
   const lightColor = boardTheme.id === "custom" ? customLight : boardTheme.lightSquare;
   const darkColor  = boardTheme.id === "custom" ? customDark  : boardTheme.darkSquare;
   const lastMove   = currentPath.length > 0 ? currentPath[currentPath.length - 1]?.move : null;
 
-  // ── Piece animation ──────────────────────────────────────────────────────────
+  // ── Piece animation state ─────────────────────────────────────────────────
   const [animPiece, setAnimPiece] = useState<AnimPiece | null>(null);
   const animX     = useRef(new Animated.Value(0)).current;
   const animY     = useRef(new Animated.Value(0)).current;
   const animScale = useRef(new Animated.Value(1)).current;
   const pendingMove = useRef<string | null>(null);
 
-  // ── User arrows ──────────────────────────────────────────────────────────────
+  // ── User arrows ───────────────────────────────────────────────────────────
   const [userArrows, setUserArrows] = useState<UserArrow[]>([]);
+  const [arrowFromSq, setArrowFromSq] = useState<string | null>(null);
 
   // Clear user arrows when a move is played
   const prevPathLen = useRef(currentPath.length);
@@ -193,52 +168,49 @@ export default function ChessBoard() {
     }
   }, [currentPath.length]);
 
-  // ── Touch helpers ────────────────────────────────────────────────────────────
+  // ── Stable helpers ────────────────────────────────────────────────────────
   const getSquareName = useCallback((row: number, col: number): string => {
     const r = flipped ? row : 7 - row;
     const c = flipped ? 7 - col : col;
-    return String.fromCharCode("a".charCodeAt(0) + c) + (r + 1);
+    return String.fromCharCode(97 + c) + (r + 1);
   }, [flipped]);
 
   const getPiece = useCallback((row: number, col: number): Piece | null => {
-    const displayRow = flipped ? 7 - row : row;
-    const displayCol = flipped ? 7 - col : col;
-    return board[displayRow][displayCol];
+    const dr = flipped ? 7 - row : row;
+    const dc = flipped ? 7 - col : col;
+    return board[dr][dc];
   }, [board, flipped]);
 
   const getSquareOverlay = useCallback((sq: string): string | null => {
-    if (checkedKingSquare === sq) return "rgba(200, 0, 0, 0.55)";
-    if (selectedSquare === sq)    return "rgba(20, 85, 30, 0.5)";
-    if (legalMovesSet.has(sq))    return "rgba(20, 85, 30, 0.3)";
+    if (checkedKingSquare === sq) return "rgba(200,0,0,0.55)";
+    if (selectedSquare    === sq) return "rgba(20,85,30,0.5)";
+    if (legalMovesSet.has(sq))   return "rgba(20,85,30,0.3)";
     return null;
   }, [checkedKingSquare, selectedSquare, legalMovesSet]);
 
+  // ── Move + animation ──────────────────────────────────────────────────────
   const handlePressWithAnimation = useCallback((sq: string) => {
     if (pendingPromotion) { handleSquarePress(sq); return; }
-
     if (selectedSquare && legalMovesSet.has(sq) && !animPiece) {
       const fromRC = squareToRC(selectedSquare, flipped);
       const toRC   = squareToRC(sq, flipped);
       const fromX  = fromRC.col * SQUARE_SIZE;
       const fromY  = fromRC.row * SQUARE_SIZE;
-      const toX    = toRC.col * SQUARE_SIZE;
-      const toY    = toRC.row * SQUARE_SIZE;
-
-      const displayRow = flipped ? 7 - fromRC.row : fromRC.row;
-      const displayCol = flipped ? 7 - fromRC.col : fromRC.col;
-      const piece = board[displayRow][displayCol];
-
+      const toX    = toRC.col  * SQUARE_SIZE;
+      const toY    = toRC.row  * SQUARE_SIZE;
+      const dr = flipped ? 7 - fromRC.row : fromRC.row;
+      const dc = flipped ? 7 - fromRC.col : fromRC.col;
+      const piece = board[dr][dc];
       if (piece) {
         pendingMove.current = sq;
         animX.setValue(0);
         animY.setValue(0);
         animScale.setValue(1.1);
         setAnimPiece({ piece, fromSq: selectedSquare, toSq: sq, fromX, fromY, toX, toY });
-
         Animated.parallel([
-          Animated.timing(animX, { toValue: toX - fromX, duration: 170, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(animY, { toValue: toY - fromY, duration: 170, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(animScale, { toValue: 1, duration: 170, useNativeDriver: true }),
+          Animated.timing(animX, { toValue: toX - fromX, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(animY, { toValue: toY - fromY, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(animScale, { toValue: 1, duration: 160, useNativeDriver: true }),
         ]).start(() => {
           const target = pendingMove.current;
           pendingMove.current = null;
@@ -251,76 +223,85 @@ export default function ChessBoard() {
     handleSquarePress(sq);
   }, [selectedSquare, legalMovesSet, flipped, board, animPiece, handleSquarePress, animX, animY, animScale, pendingPromotion]);
 
-  // ── PanResponder — handles taps AND long-press arrow drawing ─────────────────
-  const touchStart = useRef<{ sq: string; px: number; py: number; t: number } | null>(null);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const arrowFromRef = useRef<string | null>(null);    // set once long-press fires
-  const [arrowFromSq, setArrowFromSq] = useState<string | null>(null); // visual
+  // ── Keep refs up-to-date so PanResponder always reads fresh values ─────────
+  // PanResponder is created once (useRef), never recreated — eliminates the
+  // re-render cascade caused by PanResponder recreation on every state change.
+  const flippedRef           = useRef(flipped);
+  const animPieceRef         = useRef(animPiece);
+  const handlePressRef       = useRef(handlePressWithAnimation);
+  const arrowFromRef         = useRef<string | null>(null);
+  const touchStartRef        = useRef<{ sq: string; px: number; py: number; t: number } | null>(null);
+  const longPressTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const panResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => arrowFromRef.current !== null,
+  useEffect(() => { flippedRef.current     = flipped;               }, [flipped]);
+  useEffect(() => { animPieceRef.current   = animPiece;             }, [animPiece]);
+  useEffect(() => { handlePressRef.current = handlePressWithAnimation; }, [handlePressWithAnimation]);
 
-    onPanResponderGrant: (evt) => {
-      const { locationX, locationY } = evt.nativeEvent;
-      const sq = posToSq(locationX, locationY, flipped);
-      touchStart.current = { sq: sq || "", px: locationX, py: locationY, t: Date.now() };
+  // ── PanResponder — created ONCE, reads from refs ──────────────────────────
+  // Attach to a transparent absoluteFill overlay so locationX/Y is always
+  // relative to the board origin (not to whichever child square was touched).
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder:        () => true,
+      onMoveShouldSetPanResponder:         () => arrowFromRef.current !== null,
+      onStartShouldSetPanResponderCapture: () => false,
 
-      if (longPressTimer.current) clearTimeout(longPressTimer.current);
-      longPressTimer.current = setTimeout(() => {
-        if (!touchStart.current || !sq) return;
-        arrowFromRef.current = sq;
-        setArrowFromSq(sq);
-      }, LONG_PRESS_MS);
-    },
+      onPanResponderGrant: (evt) => {
+        const { locationX, locationY } = evt.nativeEvent;
+        const sq = posToSq(locationX, locationY, flippedRef.current);
+        touchStartRef.current = { sq: sq ?? "", px: locationX, py: locationY, t: Date.now() };
 
-    onPanResponderRelease: (evt) => {
-      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = setTimeout(() => {
+          if (!touchStartRef.current || !sq) return;
+          arrowFromRef.current = sq;
+          setArrowFromSq(sq);
+        }, LONG_PRESS_MS);
+      },
 
-      const { locationX, locationY } = evt.nativeEvent;
-      const endSq  = posToSq(locationX, locationY, flipped);
-      const start  = touchStart.current;
-      const fromSq = arrowFromRef.current;
+      onPanResponderRelease: (evt) => {
+        if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
 
-      touchStart.current  = null;
-      arrowFromRef.current = null;
-      setArrowFromSq(null);
+        const { locationX, locationY } = evt.nativeEvent;
+        const endSq  = posToSq(locationX, locationY, flippedRef.current);
+        const start  = touchStartRef.current;
+        const fromSq = arrowFromRef.current;
 
-      if (fromSq) {
-        // Arrow drawing mode
-        if (endSq && endSq !== fromSq) {
-          // Toggle arrow
-          setUserArrows(prev => {
-            const idx = prev.findIndex(a => a.from === fromSq && a.to === endSq);
-            return idx >= 0 ? prev.filter((_, i) => i !== idx) : [...prev, { from: fromSq, to: endSq }];
-          });
-        } else {
-          // Long-press on same square → clear all arrows
-          setUserArrows([]);
+        touchStartRef.current  = null;
+        arrowFromRef.current   = null;
+        setArrowFromSq(null);
+
+        if (fromSq) {
+          if (endSq && endSq !== fromSq) {
+            setUserArrows(prev => {
+              const idx = prev.findIndex(a => a.from === fromSq && a.to === endSq);
+              return idx >= 0 ? prev.filter((_, i) => i !== idx) : [...prev, { from: fromSq, to: endSq }];
+            });
+          } else {
+            setUserArrows([]);
+          }
+          return;
         }
-        return;
-      }
 
-      // Normal tap — check it hasn't drifted too far
-      if (start && endSq) {
-        const dx = locationX - start.px;
-        const dy = locationY - start.py;
+        if (!start) return;
+        const dx   = locationX - start.px;
+        const dy   = locationY - start.py;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < TAP_MOVE_PX && !animPiece) {
-          handlePressWithAnimation(start.sq || endSq);
+        if (dist < TAP_MOVE_PX && !animPieceRef.current) {
+          handlePressRef.current(start.sq || endSq || "");
         }
-      }
-    },
+      },
 
-    onPanResponderTerminate: () => {
-      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-      arrowFromRef.current = null;
-      setArrowFromSq(null);
-      touchStart.current = null;
-    },
-  }), [flipped, handlePressWithAnimation]);   // eslint-disable-line react-hooks/exhaustive-deps
+      onPanResponderTerminate: () => {
+        if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+        arrowFromRef.current  = null;
+        touchStartRef.current = null;
+        setArrowFromSq(null);
+      },
+    })
+  ).current;
 
-  // ── Square data ───────────────────────────────────────────────────────────────
+  // ── Square data (memoized) ────────────────────────────────────────────────
   const squareData = useMemo((): SquareData[][] => {
     const rows: SquareData[][] = [];
     for (let row = 0; row < 8; row++) {
@@ -328,22 +309,18 @@ export default function ChessBoard() {
       for (let col = 0; col < 8; col++) {
         const sq    = getSquareName(row, col);
         const piece = getPiece(row, col);
-        const visualRow = flipped ? 7 - row : row;
-        const visualCol = flipped ? 7 - col : col;
-        const isLight      = (visualRow + visualCol) % 2 === 0;
-        const overlay      = getSquareOverlay(sq);
-        const isLegalDot   = legalMovesSet.has(sq) && !piece;
-        const isLegalCapture = legalMovesSet.has(sq) && !!piece;
-        const ann          = squareAnnotations[sq];
+        const vr = flipped ? 7 - row : row;
+        const vc = flipped ? 7 - col : col;
+        const isLight = (vr + vc) % 2 === 0;
         cols.push({
-          sq, piece, isLight, overlay,
-          isLegalDot, isLegalCapture,
+          sq, piece, isLight,
+          overlay:         getSquareOverlay(sq),
+          isLegalDot:      legalMovesSet.has(sq) && !piece,
+          isLegalCapture:  legalMovesSet.has(sq) && !!piece,
           isAnimatingFrom: animPiece?.fromSq === sq,
-          annOnDest: ann,
-          rank: flipped ? row + 1 : 8 - row,
-          file: flipped
-            ? String.fromCharCode("h".charCodeAt(0) - col)
-            : String.fromCharCode("a".charCodeAt(0) + col),
+          annOnDest:       squareAnnotations[sq],
+          rank:  flipped ? row + 1 : 8 - row,
+          file:  flipped ? String.fromCharCode(104 - col) : String.fromCharCode(97 + col),
           showRankLabel: col === 0,
           showFileLabel: row === 7,
         });
@@ -353,21 +330,16 @@ export default function ChessBoard() {
     return rows;
   }, [getSquareName, getPiece, flipped, getSquareOverlay, legalMovesSet, animPiece, squareAnnotations]);
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <View
-        style={[styles.board, { width: BOARD_SIZE, height: BOARD_SIZE }]}
-        {...panResponder.panHandlers}
-      >
+      <View style={[styles.board, { width: BOARD_SIZE, height: BOARD_SIZE }]}>
+
+        {/* 64 squares */}
         {squareData.map((rowCols, row) => (
           <View key={row} style={styles.row}>
             {rowCols.map((data) => (
-              <BoardSquare
-                key={data.sq}
-                {...data}
-                lightColor={lightColor}
-                darkColor={darkColor}
-              />
+              <BoardSquare key={data.sq} {...data} lightColor={lightColor} darkColor={darkColor} />
             ))}
           </View>
         ))}
@@ -377,48 +349,42 @@ export default function ChessBoard() {
           <Arrow from={lastMove.from} to={lastMove.to} flipped={flipped} color="#1565c0" thin />
         )}
 
-        {/* User-drawn arrows (slightly thicker, slightly lighter blue) */}
+        {/* User-drawn arrows */}
         {userArrows.map((a, i) => (
           <Arrow key={i} from={a.from} to={a.to} flipped={flipped} color="#1976d2" />
         ))}
 
-        {/* Preview: arrow-from square highlight while user is in drag mode */}
+        {/* Arrow-from highlight while long-pressing */}
         {arrowFromSq && (() => {
           const rc = squareToRC(arrowFromSq, flipped);
           return (
             <View
               pointerEvents="none"
-              style={[
-                styles.arrowFromHighlight,
-                {
-                  left:  rc.col * SQUARE_SIZE,
-                  top:   rc.row * SQUARE_SIZE,
-                  width: SQUARE_SIZE,
-                  height: SQUARE_SIZE,
-                },
-              ]}
+              style={[styles.arrowFromHighlight, {
+                left: rc.col * SQUARE_SIZE, top: rc.row * SQUARE_SIZE,
+                width: SQUARE_SIZE, height: SQUARE_SIZE,
+              }]}
             />
           );
         })()}
 
-        {/* Animated piece overlay */}
+        {/* Animated piece */}
         {animPiece && (
           <Animated.View
-            style={[
-              styles.animPiece,
-              {
-                left:  animPiece.fromX,
-                top:   animPiece.fromY,
-                width: SQUARE_SIZE,
-                height: SQUARE_SIZE,
-                transform: [{ translateX: animX }, { translateY: animY }, { scale: animScale }],
-              },
-            ]}
             pointerEvents="none"
+            style={[styles.animPiece, {
+              left: animPiece.fromX, top: animPiece.fromY,
+              width: SQUARE_SIZE, height: SQUARE_SIZE,
+              transform: [{ translateX: animX }, { translateY: animY }, { scale: animScale }],
+            }]}
           >
             <ChessPiece piece={animPiece.piece} size={SQUARE_SIZE * 0.9} />
           </Animated.View>
         )}
+
+        {/* ── Touch overlay — sits on top of everything, PanResponder attached here.
+               absoluteFill guarantees locationX/Y are always board-relative. ── */}
+        <View style={styles.touchOverlay} {...panResponder.panHandlers} />
       </View>
 
       {pendingPromotion && (
@@ -439,22 +405,19 @@ const styles = StyleSheet.create({
   board:      { borderWidth: 2, borderColor: "#2d3748", overflow: "hidden", position: "relative" },
   row:        { flexDirection: "row" },
   square:     { justifyContent: "center", alignItems: "center", position: "relative" },
-  legalDot:   { width: 14, height: 14, borderRadius: 7, backgroundColor: "rgba(20, 85, 30, 0.45)", position: "absolute" },
+  legalDot:   { width: 14, height: 14, borderRadius: 7, backgroundColor: "rgba(20,85,30,0.45)", position: "absolute" },
   legalCapture: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderWidth: 4 },
-  rankLabel:  { position: "absolute", top: 1, left: 2, fontSize: 9, fontWeight: "700" },
+  rankLabel:  { position: "absolute", top: 1,    left: 2,  fontSize: 9, fontWeight: "700" },
   fileLabel:  { position: "absolute", bottom: 1, right: 2, fontSize: 9, fontWeight: "700" },
   animPiece:  { position: "absolute", justifyContent: "center", alignItems: "center", zIndex: 100 },
   annBadge: {
     position: "absolute", top: 1, right: 1,
     width: 20, height: 20, borderRadius: 10, borderWidth: 1.5,
     justifyContent: "center", alignItems: "center", zIndex: 20,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.35, shadowRadius: 2, elevation: 4,
   },
   annBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", lineHeight: 12, textAlign: "center" },
-  arrowFromHighlight: {
-    position: "absolute",
-    backgroundColor: "rgba(25, 118, 210, 0.35)",
-    zIndex: 5,
-  },
+  arrowFromHighlight: { position: "absolute", backgroundColor: "rgba(25,118,210,0.35)", zIndex: 5 },
+  // Transparent layer on top of board — PanResponder target.
+  // zIndex 200 ensures it is above pieces, arrows, and animation layers.
+  touchOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 200, backgroundColor: "transparent" },
 });
