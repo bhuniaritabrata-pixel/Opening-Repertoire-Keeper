@@ -19,8 +19,8 @@ const { width } = Dimensions.get("window");
 const BOARD_SIZE = Math.min(width - 16, 400);
 const SQUARE_SIZE = BOARD_SIZE / 8;
 
-const LONG_PRESS_MS = 320;
-const TAP_MOVE_PX   = 18;
+const DRAG_THRESHOLD = 14;   // px before a touch becomes an arrow-draw drag
+const TAP_MOVE_PX    = 14;   // px max drift for a tap
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface AnimPiece {
@@ -229,46 +229,53 @@ export default function ChessBoard() {
   // ── Keep refs up-to-date so PanResponder always reads fresh values ─────────
   // PanResponder is created once (useRef), never recreated — eliminates the
   // re-render cascade caused by PanResponder recreation on every state change.
-  const flippedRef           = useRef(flipped);
-  const animPieceRef         = useRef(animPiece);
-  const handlePressRef       = useRef(handlePressWithAnimation);
-  const arrowFromRef         = useRef<string | null>(null);
-  const touchStartRef        = useRef<{ sq: string; px: number; py: number; t: number } | null>(null);
-  const longPressTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flippedRef       = useRef(flipped);
+  const animPieceRef     = useRef(animPiece);
+  const handlePressRef   = useRef(handlePressWithAnimation);
+  // ref mirrors userArrows.length so the static PanResponder can check it
+  const hasArrowsRef     = useRef(false);
+  const arrowFromRef     = useRef<string | null>(null);
+  const touchStartRef    = useRef<{ sq: string; px: number; py: number } | null>(null);
 
-  useEffect(() => { flippedRef.current     = flipped;               }, [flipped]);
-  useEffect(() => { animPieceRef.current   = animPiece;             }, [animPiece]);
-  useEffect(() => { handlePressRef.current = handlePressWithAnimation; }, [handlePressWithAnimation]);
+  useEffect(() => { flippedRef.current     = flipped;                    }, [flipped]);
+  useEffect(() => { animPieceRef.current   = animPiece;                  }, [animPiece]);
+  useEffect(() => { handlePressRef.current = handlePressWithAnimation;   }, [handlePressWithAnimation]);
+  useEffect(() => { hasArrowsRef.current   = userArrows.length > 0;      }, [userArrows]);
 
   // ── PanResponder — created ONCE, reads from refs ──────────────────────────
-  // Attach to a transparent absoluteFill overlay so locationX/Y is always
-  // relative to the board origin (not to whichever child square was touched).
+  // Swipe-to-draw: no long-press. As soon as the finger travels > DRAG_THRESHOLD
+  // pixels the gesture becomes an arrow-draw and the arrow follows the finger
+  // live. A short tap either clears existing arrows or selects/moves a piece.
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder:        () => true,
-      onMoveShouldSetPanResponder:         () => arrowFromRef.current !== null,
+      onMoveShouldSetPanResponder:         () => true,
       onStartShouldSetPanResponderCapture: () => false,
 
       onPanResponderGrant: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
         const sq = posToSq(locationX, locationY, flippedRef.current);
-        touchStartRef.current = { sq: sq ?? "", px: locationX, py: locationY, t: Date.now() };
-
-        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = setTimeout(() => {
-          if (!touchStartRef.current || !sq) return;
-          arrowFromRef.current = sq;
-          prevArrowPreviewSqRef.current = sq;
-          setArrowFromSq(sq);
-          setArrowPreviewTo(sq);
-        }, LONG_PRESS_MS);
+        touchStartRef.current = { sq: sq ?? "", px: locationX, py: locationY };
       },
 
-      // Update live preview square as the finger moves — only re-render when the
-      // square changes (avoids setState on every pixel, max 64 calls per drag).
+      // As soon as the finger moves past DRAG_THRESHOLD start drawing the arrow
+      // live.  Only re-render when the square changes (max 64 calls per drag).
       onPanResponderMove: (evt) => {
-        if (!arrowFromRef.current) return;
+        const start = touchStartRef.current;
+        if (!start) return;
         const { locationX, locationY } = evt.nativeEvent;
+        const dx = locationX - start.px;
+        const dy = locationY - start.py;
+
+        if (!arrowFromRef.current) {
+          // Not yet in draw mode — check if we've crossed the drag threshold
+          if (Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
+          // Enter draw mode immediately
+          arrowFromRef.current = start.sq;
+          prevArrowPreviewSqRef.current = start.sq;
+          setArrowFromSq(start.sq);
+        }
+
         const sq = posToSq(locationX, locationY, flippedRef.current);
         if (sq !== prevArrowPreviewSqRef.current) {
           prevArrowPreviewSqRef.current = sq;
@@ -277,8 +284,6 @@ export default function ChessBoard() {
       },
 
       onPanResponderRelease: (evt) => {
-        if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-
         const { locationX, locationY } = evt.nativeEvent;
         const endSq  = posToSq(locationX, locationY, flippedRef.current);
         const start  = touchStartRef.current;
@@ -291,31 +296,32 @@ export default function ChessBoard() {
         setArrowPreviewTo(null);
 
         if (fromSq) {
-          // Arrow drawing gesture completed
+          // Arrow draw gesture — save if the finger landed on a different square
           if (endSq && endSq !== fromSq) {
-            // Toggle: same arrow drawn again removes it, otherwise add
             setUserArrows(prev => {
               const idx = prev.findIndex(a => a.from === fromSq && a.to === endSq);
               return idx >= 0 ? prev.filter((_, i) => i !== idx) : [...prev, { from: fromSq, to: endSq }];
             });
           }
-          // Released on same square or out of bounds → no new arrow (just clear preview)
           return;
         }
 
-        // Normal tap: always clear all drawn arrows, then handle piece logic
+        // Short tap — check movement
         if (!start) return;
         const dx   = locationX - start.px;
         const dy   = locationY - start.py;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < TAP_MOVE_PX && !animPieceRef.current) {
+        if (Math.sqrt(dx * dx + dy * dy) >= TAP_MOVE_PX) return; // too much drift
+
+        if (hasArrowsRef.current) {
+          // Arrows exist → tap just clears them, don't move pieces
           setUserArrows([]);
+        } else if (!animPieceRef.current) {
+          // No arrows → normal piece logic
           handlePressRef.current(start.sq || endSq || "");
         }
       },
 
       onPanResponderTerminate: () => {
-        if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
         arrowFromRef.current          = null;
         touchStartRef.current         = null;
         prevArrowPreviewSqRef.current = null;
