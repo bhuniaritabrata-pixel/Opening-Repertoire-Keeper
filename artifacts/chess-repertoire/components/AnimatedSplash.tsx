@@ -44,7 +44,7 @@ export default function AnimatedSplash({ onFinish }: Props) {
   const screenAlpha = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const HOP_MS = 340;
+    const HOP_MS = 300; // Reduced from 340ms for snappier feel
     const cx = SW / 2 - KNIGHT / 2;
     const cy = SH / 2 - KNIGHT / 2;
 
@@ -92,16 +92,16 @@ export default function AnimatedSplash({ onFinish }: Props) {
         Animated.timing(knightScale, { toValue: 1.3, duration: 160, easing: Easing.out(Easing.back(3)), useNativeDriver: true }),
       ]),
       Animated.timing(knightScale, { toValue: 1.0, duration: 120, useNativeDriver: true }),
-      Animated.delay(100),
+      Animated.delay(50),
       Animated.parallel([
-        Animated.timing(logoAlpha,   { toValue: 1,   duration: 400, useNativeDriver: true }),
-        Animated.timing(logoScale,   { toValue: 1,   duration: 420, easing: Easing.out(Easing.back(1.4)), useNativeDriver: true }),
-        Animated.timing(knightAlpha, { toValue: 0,   duration: 330, useNativeDriver: true }),
-        Animated.timing(knightScale, { toValue: 1.6, duration: 400, useNativeDriver: true }),
+        Animated.timing(logoAlpha,   { toValue: 1,   duration: 350, useNativeDriver: true }),
+        Animated.timing(logoScale,   { toValue: 1,   duration: 360, easing: Easing.out(Easing.back(1.4)), useNativeDriver: true }),
+        Animated.timing(knightAlpha, { toValue: 0,   duration: 300, useNativeDriver: true }),
+        Animated.timing(knightScale, { toValue: 1.6, duration: 350, useNativeDriver: true }),
       ]),
-      Animated.delay(850),
+      Animated.delay(600),
       Animated.timing(screenAlpha, {
-        toValue: 0, duration: 420,
+        toValue: 0, duration: 320,
         easing: Easing.in(Easing.quad), useNativeDriver: true,
       }),
     ]).start(() => onFinish());
