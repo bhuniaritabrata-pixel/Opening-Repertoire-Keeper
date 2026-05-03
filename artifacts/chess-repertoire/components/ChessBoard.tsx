@@ -9,6 +9,12 @@ import {
   View,
 } from "react-native";
 import Svg, { Polygon } from "react-native-svg";
+import ReAnimated, { 
+  useAnimatedStyle, 
+  useSharedValue, 
+  withTiming, 
+  Easing as ReanimatedEasing 
+} from "react-native-reanimated";
 import { useBoard, useBoardSelection } from "@/context/BoardContext";
 import { fenToBoard, getCheckedKingSquare } from "@/utils/chess";
 import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, MoveAnnotation, Piece, PieceColor } from "@/types/chess";
@@ -207,13 +213,21 @@ export default function ChessBoard() {
   const lightColor      = boardTheme.id === "custom" ? customLight : boardTheme.lightSquare;
   const darkColor       = boardTheme.id === "custom" ? customDark  : boardTheme.darkSquare;
 
-  // ── Piece animation ───────────────────────────────────────────────────────
+  // ── Piece animation (Reanimated worklets for true 60/120fps) ────────────
   const [animPiece, setAnimPiece] = useState<AnimPiece | null>(null);
-  const animX        = useRef(new Animated.Value(0)).current;
-  const animY        = useRef(new Animated.Value(0)).current;
-  const animScale    = useRef(new Animated.Value(1)).current;
+  const animX        = useSharedValue(0);
+  const animY        = useSharedValue(0);
+  const animScale    = useSharedValue(1);
   const pendingMove  = useRef<string | null>(null);
   const activeAnim   = useRef<Animated.CompositeAnimation | null>(null);
+
+  const animatedPieceStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: animX.value },
+      { translateY: animY.value },
+      { scale: animScale.value },
+    ],
+  }));
 
   // Cleanup: stop any in-flight animation on unmount to prevent setState on
   // an unmounted component (memory leak / React warning).
@@ -253,7 +267,7 @@ export default function ChessBoard() {
     return caps;
   }, [legalMovesSet, board]);
 
-  // ── Move + animation ──────────────────────────────────────────────────────
+  // ── Move + animation (Reanimated on UI thread) ────────────────────────────
   const handlePressWithAnimation = useCallback((sq: string) => {
     if (pendingPromotion) { handleSquarePress(sq); return; }
     if (selectedSquare && legalMovesSet.has(sq) && !animPiece) {
@@ -266,15 +280,14 @@ export default function ChessBoard() {
       const piece = board[dr][dc];
       if (piece) {
         pendingMove.current = sq;
-        animX.setValue(0); animY.setValue(0); animScale.setValue(1.1);
+        animX.value = 0;
+        animY.value = 0;
+        animScale.value = 1.1;
         setAnimPiece({ piece, fromSq: selectedSquare, toSq: sq, fromX, fromY, toX, toY });
-        activeAnim.current = Animated.parallel([
-          Animated.timing(animX,     { toValue: toX - fromX, duration: 155, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(animY,     { toValue: toY - fromY, duration: 155, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(animScale, { toValue: 1,           duration: 155, useNativeDriver: true }),
-        ]);
-        activeAnim.current.start(() => {
-          activeAnim.current = null;
+        
+        animX.value = withTiming(toX - fromX, { duration: 155, easing: ReanimatedEasing.out(ReanimatedEasing.cubic) });
+        animY.value = withTiming(toY - fromY, { duration: 155, easing: ReanimatedEasing.out(ReanimatedEasing.cubic) });
+        animScale.value = withTiming(1, { duration: 155 }, () => {
           const target = pendingMove.current;
           pendingMove.current = null;
           setAnimPiece(null);
@@ -469,15 +482,14 @@ export default function ChessBoard() {
           );
         })()}
 
-        {/* Layer 4 — animated piece (floats above board during move) */}
+        {/* Layer 4 — animated piece (floats above board during move, Reanimated) */}
         {animPiece && (
-          <Animated.View pointerEvents="none" style={[styles.animPiece, {
+          <ReAnimated.View pointerEvents="none" style={[styles.animPiece, {
             left: animPiece.fromX, top: animPiece.fromY,
             width: SQUARE_SIZE, height: SQUARE_SIZE,
-            transform: [{ translateX: animX }, { translateY: animY }, { scale: animScale }],
-          }]}>
+          }, animatedPieceStyle]}>
             <ChessPiece piece={animPiece.piece} size={SQUARE_SIZE * 0.9} />
-          </Animated.View>
+          </ReAnimated.View>
         )}
 
         {/* Touch overlay — receives all gestures, sits topmost */}

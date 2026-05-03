@@ -21,7 +21,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "jsEngine": "hermes"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -38,7 +39,8 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": true,
+      "bytecode": true
     },
     "extra": {
       "router": {
