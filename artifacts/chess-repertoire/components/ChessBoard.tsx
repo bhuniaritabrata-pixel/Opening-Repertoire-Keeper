@@ -146,7 +146,6 @@ export default function ChessBoard() {
   const checkedKingSquare = useMemo(() => getCheckedKingSquare(fen), [fen]);
   const lightColor = boardTheme.id === "custom" ? customLight : boardTheme.lightSquare;
   const darkColor  = boardTheme.id === "custom" ? customDark  : boardTheme.darkSquare;
-  const lastMove   = currentPath.length > 0 ? currentPath[currentPath.length - 1]?.move : null;
 
   // ── Piece animation state ─────────────────────────────────────────────────
   const [animPiece, setAnimPiece] = useState<AnimPiece | null>(null);
@@ -158,6 +157,10 @@ export default function ChessBoard() {
   // ── User arrows ───────────────────────────────────────────────────────────
   const [userArrows, setUserArrows] = useState<UserArrow[]>([]);
   const [arrowFromSq, setArrowFromSq] = useState<string | null>(null);
+  // Live preview: the square currently under the finger while drawing
+  const [arrowPreviewTo, setArrowPreviewTo] = useState<string | null>(null);
+  // Avoid redundant setState calls when finger stays on the same square
+  const prevArrowPreviewSqRef = useRef<string | null>(null);
 
   // Clear user arrows when a move is played
   const prevPathLen = useRef(currentPath.length);
@@ -255,8 +258,22 @@ export default function ChessBoard() {
         longPressTimerRef.current = setTimeout(() => {
           if (!touchStartRef.current || !sq) return;
           arrowFromRef.current = sq;
+          prevArrowPreviewSqRef.current = sq;
           setArrowFromSq(sq);
+          setArrowPreviewTo(sq);
         }, LONG_PRESS_MS);
+      },
+
+      // Update live preview square as the finger moves — only re-render when the
+      // square changes (avoids setState on every pixel, max 64 calls per drag).
+      onPanResponderMove: (evt) => {
+        if (!arrowFromRef.current) return;
+        const { locationX, locationY } = evt.nativeEvent;
+        const sq = posToSq(locationX, locationY, flippedRef.current);
+        if (sq !== prevArrowPreviewSqRef.current) {
+          prevArrowPreviewSqRef.current = sq;
+          setArrowPreviewTo(sq);
+        }
       },
 
       onPanResponderRelease: (evt) => {
@@ -267,36 +284,43 @@ export default function ChessBoard() {
         const start  = touchStartRef.current;
         const fromSq = arrowFromRef.current;
 
-        touchStartRef.current  = null;
-        arrowFromRef.current   = null;
+        touchStartRef.current         = null;
+        arrowFromRef.current          = null;
+        prevArrowPreviewSqRef.current = null;
         setArrowFromSq(null);
+        setArrowPreviewTo(null);
 
         if (fromSq) {
+          // Arrow drawing gesture completed
           if (endSq && endSq !== fromSq) {
+            // Toggle: same arrow drawn again removes it, otherwise add
             setUserArrows(prev => {
               const idx = prev.findIndex(a => a.from === fromSq && a.to === endSq);
               return idx >= 0 ? prev.filter((_, i) => i !== idx) : [...prev, { from: fromSq, to: endSq }];
             });
-          } else {
-            setUserArrows([]);
           }
+          // Released on same square or out of bounds → no new arrow (just clear preview)
           return;
         }
 
+        // Normal tap: always clear all drawn arrows, then handle piece logic
         if (!start) return;
         const dx   = locationX - start.px;
         const dy   = locationY - start.py;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < TAP_MOVE_PX && !animPieceRef.current) {
+          setUserArrows([]);
           handlePressRef.current(start.sq || endSq || "");
         }
       },
 
       onPanResponderTerminate: () => {
         if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-        arrowFromRef.current  = null;
-        touchStartRef.current = null;
+        arrowFromRef.current          = null;
+        touchStartRef.current         = null;
+        prevArrowPreviewSqRef.current = null;
         setArrowFromSq(null);
+        setArrowPreviewTo(null);
       },
     })
   ).current;
@@ -344,17 +368,17 @@ export default function ChessBoard() {
           </View>
         ))}
 
-        {/* Last-move thin blue arrow */}
-        {lastMove && (
-          <Arrow from={lastMove.from} to={lastMove.to} flipped={flipped} color="#1565c0" thin />
-        )}
-
-        {/* User-drawn arrows */}
+        {/* Saved user-drawn arrows */}
         {userArrows.map((a, i) => (
           <Arrow key={i} from={a.from} to={a.to} flipped={flipped} color="#1976d2" />
         ))}
 
-        {/* Arrow-from highlight while long-pressing */}
+        {/* Live preview arrow — follows finger as you drag */}
+        {arrowFromSq && arrowPreviewTo && arrowPreviewTo !== arrowFromSq && (
+          <Arrow from={arrowFromSq} to={arrowPreviewTo} flipped={flipped} color="#1976d2" />
+        )}
+
+        {/* Arrow-from square highlight while holding */}
         {arrowFromSq && (() => {
           const rc = squareToRC(arrowFromSq, flipped);
           return (
