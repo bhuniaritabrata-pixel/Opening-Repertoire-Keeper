@@ -37,6 +37,8 @@ interface BoardContextType {
   goToStart: () => void;
   goToEnd: () => void;
   annotateNode: (nodeId: string, annotation: MoveAnnotation | undefined) => void;
+  noteNode: (nodeId: string, note: string) => void;
+  currentNote: string;
   promotionSquare: string | null;
   pendingPromotion: { from: string; to: string } | null;
   confirmPromotion: (piece: string) => void;
@@ -267,6 +269,31 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     );
   }, [opening, updateOpening]);
 
+  // noteNode: saves a free-text note on a move node, persisted via updateOpening.
+  const noteNode = useCallback((nodeId: string, note: string) => {
+    if (!opening) return;
+
+    function applyNote(nodes: MoveNode[]): MoveNode[] {
+      return nodes.map(n => {
+        if (n.id === nodeId) return { ...n, note };
+        return { ...n, children: applyNote(n.children) };
+      });
+    }
+
+    updateOpening(opening.id, { moveTree: applyNote(opening.moveTree) });
+
+    // Mirror into currentPath for instant UI update
+    setCurrentPath(prev =>
+      prev.map(n => n.id === nodeId ? { ...n, note } : n)
+    );
+  }, [opening, updateOpening]);
+
+  // Derived: note text for the currently selected move
+  const currentNote = useMemo(() => {
+    if (!currentNodeId || currentPath.length === 0) return "";
+    return currentPath[currentPath.length - 1]?.note ?? "";
+  }, [currentPath, currentNodeId]);
+
   const contextValue = useMemo(() => ({
     fen, setFen, flipped, setFlipped,
     selectedSquare, setSelectedSquare,
@@ -275,7 +302,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     customLight, customDark, setCustomLight, setCustomDark,
     handleSquarePress, currentPath, currentNodeId,
     goToMove, goBack, goForward, goToStart, goToEnd,
-    annotateNode,
+    annotateNode, noteNode, currentNote,
     promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
     locked, setLocked, deleteCurrentMove,
     showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
@@ -284,7 +311,8 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     boardTheme, customLight, customDark,
     handleSquarePress, currentPath, currentNodeId,
     goToMove, goBack, goForward, goToStart, goToEnd,
-    annotateNode, promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
+    annotateNode, noteNode, currentNote,
+    promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
     locked, deleteCurrentMove, showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
   ]);
 

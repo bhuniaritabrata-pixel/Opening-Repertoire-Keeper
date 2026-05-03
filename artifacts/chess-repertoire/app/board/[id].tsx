@@ -4,10 +4,12 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -28,10 +30,12 @@ function BoardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { openings, importPgn } = useRepertoire();
-  const { currentNodeId, annotateNode, currentPath, deleteCurrentMove } = useBoard();
+  const { currentNodeId, annotateNode, currentPath, deleteCurrentMove, noteNode, currentNote } = useBoard();
   const [showTheme, setShowTheme] = useState(false);
   const [showPgn, setShowPgn] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
+  const [draftNote, setDraftNote] = useState("");
 
   const opening = openings.find(o => o.id === id);
 
@@ -124,15 +128,82 @@ function BoardScreen() {
                 currentAnnotation={currentAnnotation}
                 onSelect={handleAnnotate}
               />
-              <TouchableOpacity
-                style={[styles.deleteMoveBtn, { borderColor: colors.destructive }]}
-                onPress={handleDeleteMove}
-              >
-                <Feather name="trash-2" size={14} color={colors.destructive} />
-                <Text style={[styles.deleteMoveText, { color: colors.destructive }]}>
-                  Delete this move
-                </Text>
-              </TouchableOpacity>
+
+              {/* Delete + Note buttons row */}
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.deleteMoveBtn, { borderColor: colors.destructive }]}
+                  onPress={handleDeleteMove}
+                >
+                  <Feather name="trash-2" size={14} color={colors.destructive} />
+                  <Text style={[styles.deleteMoveText, { color: colors.destructive }]}>
+                    Delete this move
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.noteBtn,
+                    { borderColor: "#1976d2", backgroundColor: editingNote ? "#1976d2" : "transparent" },
+                  ]}
+                  onPress={() => {
+                    if (!editingNote) {
+                      setDraftNote(currentNote);
+                      setEditingNote(true);
+                    } else {
+                      // Save on second tap
+                      if (currentNodeId) noteNode(currentNodeId, draftNote.trim());
+                      setEditingNote(false);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                  }}
+                >
+                  <Feather
+                    name={editingNote ? "check" : "edit-2"}
+                    size={14}
+                    color={editingNote ? "#fff" : "#1976d2"}
+                  />
+                  <Text style={[styles.noteBtnText, { color: editingNote ? "#fff" : "#1976d2" }]}>
+                    {editingNote ? "Save note" : "Add note"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Note box — shown when editing OR when a saved note exists */}
+              {(editingNote || currentNote.length > 0) && (
+                <View style={[styles.noteBox, { borderColor: "#1976d2" + "55", backgroundColor: "#1976d2" + "0d" }]}>
+                  {/* "note:" label pinned to top-right */}
+                  <Text style={[styles.noteLabel, { color: "#1976d2" }]}>note:</Text>
+
+                  {editingNote ? (
+                    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+                      <TextInput
+                        style={[styles.noteInput, { color: colors.foreground }]}
+                        value={draftNote}
+                        onChangeText={setDraftNote}
+                        multiline
+                        autoFocus
+                        placeholder="Write your note here…"
+                        placeholderTextColor={colors.mutedForeground}
+                        onSubmitEditing={() => {
+                          if (currentNodeId) noteNode(currentNodeId, draftNote.trim());
+                          setEditingNote(false);
+                        }}
+                      />
+                    </KeyboardAvoidingView>
+                  ) : (
+                    <ScrollView
+                      style={styles.noteScroll}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
+                    >
+                      <Text style={[styles.noteText, { color: colors.foreground }]}>
+                        {currentNote}
+                      </Text>
+                    </ScrollView>
+                  )}
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -219,6 +290,12 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 10,
   },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   deleteMoveBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -234,5 +311,54 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     fontFamily: "Inter_600SemiBold",
+  },
+  noteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignSelf: "flex-start",
+  },
+  noteBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
+  },
+  noteBox: {
+    marginTop: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 10,
+    paddingTop: 22,   // room for the "note:" label
+    minHeight: 60,
+    maxHeight: 140,
+    position: "relative",
+  },
+  noteLabel: {
+    position: "absolute",
+    top: 6,
+    right: 10,
+    fontSize: 11,
+    fontWeight: "700",
+    fontStyle: "italic",
+    letterSpacing: 0.2,
+  },
+  noteScroll: {
+    maxHeight: 110,
+  },
+  noteText: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: "Inter_400Regular",
+  },
+  noteInput: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: "Inter_400Regular",
+    minHeight: 60,
+    textAlignVertical: "top",
   },
 });

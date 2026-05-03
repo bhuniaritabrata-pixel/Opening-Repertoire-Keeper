@@ -58,6 +58,7 @@ export interface MoveNode {
   move: ChessMove;
   children: MoveNode[];
   parentId: string | null;
+  note?: string;
 }
 
 export interface Opening {
