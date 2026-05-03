@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Folder, MoveNode, Opening, SortMode, STARTING_FEN, generateId } from "@/types/chess";
 import { parsePgnToSans, sanToMove, applyMove } from "@/utils/chess";
 
@@ -266,16 +266,27 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     } catch { return false; }
   }, [openings, saveOpenings]);
 
+  // useMemo ensures all consumers only re-render when something they actually
+  // use changes — not on unrelated state updates inside this provider.
+  const ctxValue = useMemo(() => ({
+    openings, folders, sortMode, setSortMode,
+    currentOpeningId, setCurrentOpeningId,
+    addOpening, deleteOpening, updateOpening, renameOpening,
+    moveOpeningToFolder, reorderOpenings,
+    addFolder, deleteFolder, renameFolder, reorderFolders,
+    addMoveToOpening, deleteMoveNode, importPgn,
+    isLoading,
+  }), [
+    openings, folders, sortMode, currentOpeningId, isLoading,
+    setSortMode, setCurrentOpeningId,
+    addOpening, deleteOpening, updateOpening, renameOpening,
+    moveOpeningToFolder, reorderOpenings,
+    addFolder, deleteFolder, renameFolder, reorderFolders,
+    addMoveToOpening, deleteMoveNode, importPgn,
+  ]);
+
   return (
-    <RepertoireContext.Provider value={{
-      openings, folders, sortMode, setSortMode,
-      currentOpeningId, setCurrentOpeningId,
-      addOpening, deleteOpening, updateOpening, renameOpening,
-      moveOpeningToFolder, reorderOpenings,
-      addFolder, deleteFolder, renameFolder, reorderFolders,
-      addMoveToOpening, deleteMoveNode, importPgn,
-      isLoading,
-    }}>
+    <RepertoireContext.Provider value={ctxValue}>
       {children}
     </RepertoireContext.Provider>
   );

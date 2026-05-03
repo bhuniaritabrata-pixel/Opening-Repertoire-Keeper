@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import Svg, { Polygon } from "react-native-svg";
-import { useBoard } from "@/context/BoardContext";
+import { useBoard, useBoardSelection } from "@/context/BoardContext";
 import { fenToBoard, getCheckedKingSquare } from "@/utils/chess";
 import { ANNOTATION_COLORS, ANNOTATION_SYMBOLS, MoveAnnotation, Piece, PieceColor } from "@/types/chess";
 import ChessPiece from "@/components/ChessPiece";
@@ -187,10 +187,17 @@ const BoardSquare = memo(function BoardSquare({
 
 // ─── Main board ───────────────────────────────────────────────────────────────
 export default function ChessBoard() {
+  // Selection state (tap-frequency) — only ChessBoard reads this context,
+  // so MoveTree / BoardControls are never triggered by piece selection.
   const {
-    fen, flipped, selectedSquare, legalMovesSet,
-    boardTheme, customLight, customDark,
+    selectedSquare, legalMovesSet,
     handleSquarePress, pendingPromotion, confirmPromotion, cancelPromotion,
+  } = useBoardSelection();
+
+  // Board / navigation state (move-frequency)
+  const {
+    fen, flipped,
+    boardTheme, customLight, customDark,
     currentPath, squareAnnotations,
   } = useBoard();
 
@@ -202,10 +209,20 @@ export default function ChessBoard() {
 
   // ── Piece animation ───────────────────────────────────────────────────────
   const [animPiece, setAnimPiece] = useState<AnimPiece | null>(null);
-  const animX     = useRef(new Animated.Value(0)).current;
-  const animY     = useRef(new Animated.Value(0)).current;
-  const animScale = useRef(new Animated.Value(1)).current;
-  const pendingMove = useRef<string | null>(null);
+  const animX        = useRef(new Animated.Value(0)).current;
+  const animY        = useRef(new Animated.Value(0)).current;
+  const animScale    = useRef(new Animated.Value(1)).current;
+  const pendingMove  = useRef<string | null>(null);
+  const activeAnim   = useRef<Animated.CompositeAnimation | null>(null);
+
+  // Cleanup: stop any in-flight animation on unmount to prevent setState on
+  // an unmounted component (memory leak / React warning).
+  useEffect(() => {
+    return () => {
+      activeAnim.current?.stop();
+      pendingMove.current = null;
+    };
+  }, []);
 
   // ── User arrows ───────────────────────────────────────────────────────────
   const [userArrows,    setUserArrows]    = useState<UserArrow[]>([]);
@@ -251,11 +268,13 @@ export default function ChessBoard() {
         pendingMove.current = sq;
         animX.setValue(0); animY.setValue(0); animScale.setValue(1.1);
         setAnimPiece({ piece, fromSq: selectedSquare, toSq: sq, fromX, fromY, toX, toY });
-        Animated.parallel([
+        activeAnim.current = Animated.parallel([
           Animated.timing(animX,     { toValue: toX - fromX, duration: 155, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
           Animated.timing(animY,     { toValue: toY - fromY, duration: 155, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
           Animated.timing(animScale, { toValue: 1,           duration: 155, useNativeDriver: true }),
-        ]).start(() => {
+        ]);
+        activeAnim.current.start(() => {
+          activeAnim.current = null;
           const target = pendingMove.current;
           pendingMove.current = null;
           setAnimPiece(null);

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { View, StyleSheet } from "react-native";
 import { SvgUri } from "react-native-svg";
 import { Piece } from "@/types/chess";
@@ -25,26 +25,20 @@ interface ChessPieceProps {
   size: number;
 }
 
-export default function ChessPiece({ piece, size }: ChessPieceProps) {
+// memo: a piece only re-renders when its type, color, or size actually changes.
+// Since BoardSquare is already memoized with no selection deps, this is an
+// extra guard ensuring the SVG is never re-fetched unnecessarily.
+export default memo(function ChessPiece({ piece, size }: ChessPieceProps) {
   const key = piece.color + piece.type;
   const uri = PIECE_URLS[key];
-
   if (!uri) return null;
-
   return (
     <View style={[styles.container, { width: size, height: size }]}>
-      <SvgUri
-        uri={uri}
-        width={size}
-        height={size}
-      />
+      <SvgUri uri={uri} width={size} height={size} />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
-  container: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  container: { justifyContent: "center", alignItems: "center" },
 });

@@ -13,74 +13,82 @@ function findNodeById(nodes: MoveNode[], id: string | null): MoveNode | null {
   return null;
 }
 
-interface BoardContextType {
-  fen: string;
-  setFen: (fen: string) => void;
-  flipped: boolean;
-  setFlipped: (f: boolean) => void;
-  selectedSquare: string | null;
-  setSelectedSquare: (sq: string | null) => void;
-  legalMoves: string[];
-  legalMovesSet: Set<string>;
-  boardTheme: BoardTheme;
-  setBoardTheme: (theme: BoardTheme) => void;
-  customLight: string;
-  customDark: string;
-  setCustomLight: (c: string) => void;
-  setCustomDark: (c: string) => void;
+// ─── Context A: Selection ─────────────────────────────────────────────────────
+// Changes on EVERY piece tap. Only ChessBoard subscribes to this context so
+// MoveTree / BoardControls / BoardScreen are never re-rendered by taps.
+interface BoardSelectionContextType {
+  selectedSquare:    string | null;
+  legalMovesSet:     Set<string>;
   handleSquarePress: (sq: string) => void;
-  currentPath: MoveNode[];
-  currentNodeId: string | null;
-  goToMove: (node: MoveNode | null, path: MoveNode[]) => void;
-  goBack: () => void;
-  goForward: (childIndex?: number) => void;
-  goToStart: () => void;
-  goToEnd: () => void;
-  annotateNode: (nodeId: string, annotation: MoveAnnotation | undefined) => void;
-  noteNode: (nodeId: string, note: string) => void;
-  currentNote: string;
-  promotionSquare: string | null;
-  pendingPromotion: { from: string; to: string } | null;
-  confirmPromotion: (piece: string) => void;
-  cancelPromotion: () => void;
-  locked: boolean;
-  setLocked: (l: boolean) => void;
-  deleteCurrentMove: () => void;
-  showBoardAnnotations: boolean;
-  toggleBoardAnnotations: () => void;
-  squareAnnotations: Record<string, { annotation: MoveAnnotation; from: string }>;
+  pendingPromotion:  { from: string; to: string } | null;
+  promotionSquare:   string | null;
+  confirmPromotion:  (piece: string) => void;
+  cancelPromotion:   () => void;
 }
 
-const BoardContext = createContext<BoardContextType | null>(null);
+// ─── Context B: Board / navigation ────────────────────────────────────────────
+// Changes only when moves are played or the user navigates the tree.
+interface BoardContextType {
+  fen:                   string;
+  setFen:                (fen: string) => void;
+  flipped:               boolean;
+  setFlipped:            (f: boolean) => void;
+  boardTheme:            BoardTheme;
+  setBoardTheme:         (theme: BoardTheme) => void;
+  customLight:           string;
+  customDark:            string;
+  setCustomLight:        (c: string) => void;
+  setCustomDark:         (c: string) => void;
+  currentPath:           MoveNode[];
+  currentNodeId:         string | null;
+  goToMove:              (node: MoveNode | null, path: MoveNode[]) => void;
+  goBack:                () => void;
+  goForward:             (childIndex?: number) => void;
+  goToStart:             () => void;
+  goToEnd:               () => void;
+  annotateNode:          (nodeId: string, annotation: MoveAnnotation | undefined) => void;
+  noteNode:              (nodeId: string, note: string) => void;
+  currentNote:           string;
+  locked:                boolean;
+  setLocked:             (l: boolean) => void;
+  deleteCurrentMove:     () => void;
+  showBoardAnnotations:  boolean;
+  toggleBoardAnnotations:() => void;
+  squareAnnotations:     Record<string, { annotation: MoveAnnotation; from: string }>;
+}
+
+const BoardContext          = createContext<BoardContextType | null>(null);
+const BoardSelectionContext = createContext<BoardSelectionContextType | null>(null);
 
 interface BoardProviderProps {
   children: React.ReactNode;
-  opening: Opening | null;
+  opening:  Opening | null;
 }
 
 export function BoardProvider({ children, opening }: BoardProviderProps) {
   const { addMoveToOpening, updateOpening, deleteMoveNode } = useRepertoire();
-  const [fen, setFen] = useState(opening?.rootFen || STARTING_FEN);
-  const [flipped, setFlipped] = useState(opening?.color === "black");
-  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
-  const [legalMoves, setLegalMoves] = useState<string[]>([]);
-  const [boardTheme, setBoardTheme] = useState<BoardTheme>(BOARD_THEMES[0]);
-  const [customLight, setCustomLight] = useState("#f0d9b5");
-  const [customDark, setCustomDark] = useState("#b58863");
-  const [currentPath, setCurrentPath] = useState<MoveNode[]>([]);
-  const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
-  const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
-  const [promotionSquare, setPromotionSquare] = useState<string | null>(null);
-  const [locked, setLocked] = useState(false);
+
+  // ── Position / navigation state ──────────────────────────────────────────
+  const [fen,            setFen]            = useState(opening?.rootFen || STARTING_FEN);
+  const [flipped,        setFlipped]        = useState(opening?.color === "black");
+  const [boardTheme,     setBoardTheme]     = useState<BoardTheme>(BOARD_THEMES[0]);
+  const [customLight,    setCustomLight]    = useState("#f0d9b5");
+  const [customDark,     setCustomDark]     = useState("#b58863");
+  const [currentPath,    setCurrentPath]    = useState<MoveNode[]>([]);
+  const [currentNodeId,  setCurrentNodeId]  = useState<string | null>(null);
+  const [locked,         setLocked]         = useState(false);
   const [showBoardAnnotations, setShowBoardAnnotations] = useState(true);
 
-  // O(1) lookup set — derived from legalMoves array, recomputed only when legalMoves changes
+  // ── Selection state (isolated — only ChessBoard reads this) ──────────────
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+  const [legalMoves,     setLegalMoves]     = useState<string[]>([]);
+  const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
+  const [promotionSquare,  setPromotionSquare]  = useState<string | null>(null);
+
   const legalMovesSet = useMemo(() => new Set(legalMoves), [legalMoves]);
 
   const toggleBoardAnnotations = useCallback(() => setShowBoardAnnotations(v => !v), []);
 
-  // squareAnnotations: depends only on currentPath + currentNodeId, NOT on the full opening object.
-  // This means updateOpening calls during analysis don't trigger a board re-render.
   const squareAnnotations = useMemo<Record<string, { annotation: MoveAnnotation; from: string }>>(() => {
     if (!showBoardAnnotations || !currentNodeId) return {};
     const currentNode = currentPath[currentPath.length - 1];
@@ -90,6 +98,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     };
   }, [currentPath, currentNodeId, showBoardAnnotations]);
 
+  // ── Piece interaction ─────────────────────────────────────────────────────
   const handleSquarePress = useCallback((sq: string) => {
     if (pendingPromotion) return;
 
@@ -102,8 +111,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     if (selectedSquare && legalMovesSet.has(sq)) {
       const isWhitePawn = fen.split(" ")[1] === "w";
       const toRank = sq.charCodeAt(1) - "1".charCodeAt(0);
-
-      if (toRank === 7 && isWhitePawn || toRank === 0 && !isWhitePawn) {
+      if ((toRank === 7 && isWhitePawn) || (toRank === 0 && !isWhitePawn)) {
         const result = applyMove(fen, selectedSquare, sq, "q");
         if (result && result.san.includes("=")) {
           setPendingPromotion({ from: selectedSquare, to: sq });
@@ -113,17 +121,15 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
           return;
         }
       }
-
       const result = applyMove(fen, selectedSquare, sq);
       if (result) {
         setFen(result.fen);
         setSelectedSquare(null);
         setLegalMoves([]);
-
         if (opening && !locked) {
           const newNode = addMoveToOpening(opening.id, currentNodeId, selectedSquare, sq, result.san, result.fen);
           if (newNode) {
-            setCurrentPath([...currentPath, newNode]);
+            setCurrentPath(prev => [...prev, newNode]);
             setCurrentNodeId(newNode.id);
           }
         }
@@ -139,7 +145,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       setSelectedSquare(null);
       setLegalMoves([]);
     }
-  }, [selectedSquare, legalMovesSet, fen, opening, currentNodeId, currentPath, addMoveToOpening, pendingPromotion, locked]);
+  }, [selectedSquare, legalMovesSet, fen, opening, currentNodeId, addMoveToOpening, pendingPromotion, locked]);
 
   const confirmPromotion = useCallback((piece: string) => {
     if (!pendingPromotion) return;
@@ -149,20 +155,21 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       if (opening && !locked) {
         const newNode = addMoveToOpening(opening.id, currentNodeId, pendingPromotion.from, pendingPromotion.to, result.san, result.fen);
         if (newNode) {
-          setCurrentPath([...currentPath, newNode]);
+          setCurrentPath(prev => [...prev, newNode]);
           setCurrentNodeId(newNode.id);
         }
       }
     }
     setPendingPromotion(null);
     setPromotionSquare(null);
-  }, [pendingPromotion, fen, opening, currentNodeId, currentPath, addMoveToOpening, locked]);
+  }, [pendingPromotion, fen, opening, currentNodeId, addMoveToOpening, locked]);
 
   const cancelPromotion = useCallback(() => {
     setPendingPromotion(null);
     setPromotionSquare(null);
   }, []);
 
+  // ── Navigation ────────────────────────────────────────────────────────────
   const goToMove = useCallback((node: MoveNode | null, path: MoveNode[]) => {
     if (node) {
       setFen(node.move.fen || STARTING_FEN);
@@ -179,7 +186,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
 
   const goBack = useCallback(() => {
     if (currentPath.length === 0) return;
-    const newPath = currentPath.slice(0, -1);
+    const newPath  = currentPath.slice(0, -1);
     const prevNode = newPath[newPath.length - 1] || null;
     setCurrentPath(newPath);
     setCurrentNodeId(prevNode?.id || null);
@@ -190,7 +197,6 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
 
   const goForward = useCallback((childIndex = 0) => {
     if (!opening) return;
-
     if (currentNodeId === null) {
       const firstMove = opening.moveTree[0];
       if (firstMove) {
@@ -200,15 +206,14 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       }
       return;
     }
-
     const currentNode = findNodeById(opening.moveTree, currentNodeId);
     if (currentNode && currentNode.children.length > 0) {
       const child = currentNode.children[childIndex] || currentNode.children[0];
-      setCurrentPath([...currentPath, child]);
+      setCurrentPath(prev => [...prev, child]);
       setCurrentNodeId(child.id);
       setFen(child.move.fen || STARTING_FEN);
     }
-  }, [currentNodeId, currentPath, opening]);
+  }, [currentNodeId, opening]);
 
   const goToStart = useCallback(() => {
     setFen(opening?.rootFen || STARTING_FEN);
@@ -238,8 +243,8 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   const deleteCurrentMove = useCallback(() => {
     if (!opening || !currentNodeId) return;
     const idToDelete = currentNodeId;
-    const newPath = currentPath.slice(0, -1);
-    const prevNode = newPath[newPath.length - 1] || null;
+    const newPath    = currentPath.slice(0, -1);
+    const prevNode   = newPath[newPath.length - 1] || null;
     setCurrentPath(newPath);
     setCurrentNodeId(prevNode?.id || null);
     setFen(prevNode?.move.fen || opening.rootFen || STARTING_FEN);
@@ -248,77 +253,70 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     deleteMoveNode(opening.id, idToDelete);
   }, [opening, currentNodeId, currentPath, deleteMoveNode]);
 
-  // annotateNode: updates the opening tree AND mirrors the annotation into currentPath
-  // so squareAnnotations (which reads currentPath) stays in sync without re-reading opening.
   const annotateNode = useCallback((nodeId: string, annotation: MoveAnnotation | undefined) => {
     if (!opening) return;
-
     function applyAnnotation(nodes: MoveNode[]): MoveNode[] {
       return nodes.map(n => {
         if (n.id === nodeId) return { ...n, move: { ...n.move, annotation } };
         return { ...n, children: applyAnnotation(n.children) };
       });
     }
-
     updateOpening(opening.id, { moveTree: applyAnnotation(opening.moveTree) });
-
-    // Mirror annotation into currentPath so squareAnnotations updates instantly
-    // without waiting for the opening object to propagate through context.
-    setCurrentPath(prev =>
-      prev.map(n => n.id === nodeId ? { ...n, move: { ...n.move, annotation } } : n)
-    );
+    setCurrentPath(prev => prev.map(n => n.id === nodeId ? { ...n, move: { ...n.move, annotation } } : n));
   }, [opening, updateOpening]);
 
-  // noteNode: saves a free-text note on a move node, persisted via updateOpening.
   const noteNode = useCallback((nodeId: string, note: string) => {
     if (!opening) return;
-
     function applyNote(nodes: MoveNode[]): MoveNode[] {
       return nodes.map(n => {
         if (n.id === nodeId) return { ...n, note };
         return { ...n, children: applyNote(n.children) };
       });
     }
-
     updateOpening(opening.id, { moveTree: applyNote(opening.moveTree) });
-
-    // Mirror into currentPath for instant UI update
-    setCurrentPath(prev =>
-      prev.map(n => n.id === nodeId ? { ...n, note } : n)
-    );
+    setCurrentPath(prev => prev.map(n => n.id === nodeId ? { ...n, note } : n));
   }, [opening, updateOpening]);
 
-  // Derived: note text for the currently selected move
   const currentNote = useMemo(() => {
     if (!currentNodeId || currentPath.length === 0) return "";
     return currentPath[currentPath.length - 1]?.note ?? "";
   }, [currentPath, currentNodeId]);
 
-  const contextValue = useMemo(() => ({
+  // ── Context values — split so selection changes don't propagate upward ────
+  const boardContextValue = useMemo<BoardContextType>(() => ({
     fen, setFen, flipped, setFlipped,
-    selectedSquare, setSelectedSquare,
-    legalMoves, legalMovesSet,
     boardTheme, setBoardTheme,
     customLight, customDark, setCustomLight, setCustomDark,
-    handleSquarePress, currentPath, currentNodeId,
+    currentPath, currentNodeId,
     goToMove, goBack, goForward, goToStart, goToEnd,
     annotateNode, noteNode, currentNote,
-    promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
     locked, setLocked, deleteCurrentMove,
     showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
   }), [
-    fen, flipped, selectedSquare, legalMoves, legalMovesSet,
-    boardTheme, customLight, customDark,
-    handleSquarePress, currentPath, currentNodeId,
+    fen, flipped, boardTheme, customLight, customDark,
+    currentPath, currentNodeId,
     goToMove, goBack, goForward, goToStart, goToEnd,
     annotateNode, noteNode, currentNote,
-    promotionSquare, pendingPromotion, confirmPromotion, cancelPromotion,
     locked, deleteCurrentMove, showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
   ]);
 
+  const selectionContextValue = useMemo<BoardSelectionContextType>(() => ({
+    selectedSquare, legalMovesSet,
+    handleSquarePress,
+    pendingPromotion, promotionSquare,
+    confirmPromotion, cancelPromotion,
+  }), [
+    selectedSquare, legalMovesSet,
+    handleSquarePress,
+    pendingPromotion, promotionSquare,
+    confirmPromotion, cancelPromotion,
+  ]);
+
   return (
-    <BoardContext.Provider value={contextValue}>
-      {children}
+    <BoardContext.Provider value={boardContextValue}>
+      <BoardSelectionContext.Provider value={selectionContextValue}>
+        {children}
+      </BoardSelectionContext.Provider>
     </BoardContext.Provider>
   );
 }
@@ -326,5 +324,11 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
 export function useBoard() {
   const ctx = useContext(BoardContext);
   if (!ctx) throw new Error("useBoard must be used inside BoardProvider");
+  return ctx;
+}
+
+export function useBoardSelection() {
+  const ctx = useContext(BoardSelectionContext);
+  if (!ctx) throw new Error("useBoardSelection must be used inside BoardProvider");
   return ctx;
 }
