@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
   noteLabel: {
     position: "absolute",
     top: 6,
-    right: 10,
+    left: 10,
     fontSize: 11,
     fontWeight: "700",
     fontStyle: "italic",

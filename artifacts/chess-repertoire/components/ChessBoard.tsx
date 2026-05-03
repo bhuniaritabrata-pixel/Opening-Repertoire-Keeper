@@ -16,48 +16,46 @@ import ChessPiece from "@/components/ChessPiece";
 import PromotionPicker from "@/components/PromotionPicker";
 
 const { width } = Dimensions.get("window");
-const BOARD_SIZE = Math.min(width - 16, 400);
+const BOARD_SIZE  = Math.min(width - 16, 400);
 const SQUARE_SIZE = BOARD_SIZE / 8;
 
-const DRAG_THRESHOLD = 14;   // px before a touch becomes an arrow-draw drag
-const TAP_MOVE_PX    = 14;   // px max drift for a tap
+const DRAG_THRESHOLD = 14;
+const TAP_MOVE_PX    = 14;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface AnimPiece {
   piece: Piece;
   fromSq: string; toSq: string;
   fromX: number; fromY: number;
-  toX: number; toY: number;
+  toX: number;   toY: number;
 }
 interface UserArrow { from: string; to: string }
+
+// Stripped-down square descriptor — NO selection/overlay fields.
+// This means squareData only recomputes when pieces actually move.
 interface SquareData {
-  sq: string; piece: Piece | null;
-  isLight: boolean; overlay: string | null;
-  isLegalDot: boolean; isLegalCapture: boolean;
+  sq: string;
+  piece: Piece | null;
+  isLight: boolean;
   isAnimatingFrom: boolean;
   annOnDest: { annotation: MoveAnnotation; from: string } | undefined;
   rank: number; file: string;
   showRankLabel: boolean; showFileLabel: boolean;
 }
 
-// ─── Pure helpers (no hooks, no closures over state) ─────────────────────────
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
 function squareToRC(sq: string, flipped: boolean) {
-  const col  = sq.charCodeAt(0) - 97; // 'a'
+  const col  = sq.charCodeAt(0) - 97;
   const rank = parseInt(sq[1]) - 1;
   const row  = 7 - rank;
   return flipped ? { row: 7 - row, col: 7 - col } : { row, col };
 }
 
 function squareCenter(sq: string, flipped: boolean) {
-  const col  = sq.charCodeAt(0) - 97;
-  const rank = parseInt(sq[1]) - 1;
-  const row  = 7 - rank;
-  const c = flipped ? 7 - col : col;
-  const r = flipped ? 7 - row : row;
-  return { x: (c + 0.5) * SQUARE_SIZE, y: (r + 0.5) * SQUARE_SIZE };
+  const { row, col } = squareToRC(sq, flipped);
+  return { x: (col + 0.5) * SQUARE_SIZE, y: (row + 0.5) * SQUARE_SIZE };
 }
 
-// Board-relative px → square name.  Returns null if out of bounds.
 function posToSq(px: number, py: number, flipped: boolean): string | null {
   const col = Math.floor(px / SQUARE_SIZE);
   const row = Math.floor(py / SQUARE_SIZE);
@@ -67,23 +65,21 @@ function posToSq(px: number, py: number, flipped: boolean): string | null {
   return String.fromCharCode(97 + c) + (r + 1);
 }
 
-// ─── Arrow SVG (memoized, pure) ───────────────────────────────────────────────
+// ─── Arrow SVG ────────────────────────────────────────────────────────────────
 const Arrow = memo(function Arrow({
   from, to, flipped, color, thin = false,
 }: { from: string; to: string; flipped: boolean; color: string; thin?: boolean }) {
   const a = squareCenter(from, flipped);
-  const b = squareCenter(to, flipped);
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
+  const b = squareCenter(to,   flipped);
+  const dx = b.x - a.x, dy = b.y - a.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < 1) return null;
   const ux = dx / len, uy = dy / len;
   const arrowW  = thin ? SQUARE_SIZE * 0.065 : SQUARE_SIZE * 0.12;
   const headLen = thin ? SQUARE_SIZE * 0.22  : SQUARE_SIZE * 0.34;
   const headW   = thin ? SQUARE_SIZE * 0.17  : SQUARE_SIZE * 0.28;
-  const tailGap = SQUARE_SIZE * 0.28;
-  const x1 = a.x + ux * tailGap, y1 = a.y + uy * tailGap;
-  const x2 = b.x - ux * headLen, y2 = b.y - uy * headLen;
+  const x1 = a.x + ux * SQUARE_SIZE * 0.28, y1 = a.y + uy * SQUARE_SIZE * 0.28;
+  const x2 = b.x - ux * headLen,            y2 = b.y - uy * headLen;
   const px = -uy, py2 = ux;
   const bodyPts = [
     `${x1 + px * arrowW},${y1 + py2 * arrowW}`,
@@ -104,23 +100,80 @@ const Arrow = memo(function Arrow({
   );
 });
 
-// ─── Single memoized square (View only — touches handled by overlay) ──────────
+// ─── Overlay layer ────────────────────────────────────────────────────────────
+// Renders selection highlight, legal-move dots/rings, and check tint.
+// Lives in its own memoized component so tapping a piece ONLY re-renders this
+// layer — the 64 BoardSquare cells are completely untouched.
+const OverlayLayer = memo(function OverlayLayer({
+  selectedSquare, legalMovesSet, legalCaptures, checkedKingSquare, flipped,
+}: {
+  selectedSquare:    string | null;
+  legalMovesSet:     Set<string>;
+  legalCaptures:     Set<string>;
+  checkedKingSquare: string | null;
+  flipped:           boolean;
+}) {
+  const nodes: React.ReactNode[] = [];
+
+  if (checkedKingSquare) {
+    const { row, col } = squareToRC(checkedKingSquare, flipped);
+    nodes.push(
+      <View key="chk" pointerEvents="none" style={[
+        styles.overlayFill,
+        { left: col * SQUARE_SIZE, top: row * SQUARE_SIZE, backgroundColor: "rgba(200,0,0,0.55)" },
+      ]} />,
+    );
+  }
+
+  if (selectedSquare) {
+    const { row, col } = squareToRC(selectedSquare, flipped);
+    nodes.push(
+      <View key="sel" pointerEvents="none" style={[
+        styles.overlayFill,
+        { left: col * SQUARE_SIZE, top: row * SQUARE_SIZE, backgroundColor: "rgba(20,85,30,0.5)" },
+      ]} />,
+    );
+  }
+
+  for (const sq of legalMovesSet) {
+    const { row, col } = squareToRC(sq, flipped);
+    if (legalCaptures.has(sq)) {
+      nodes.push(
+        <View key={`lc-${sq}`} pointerEvents="none" style={[
+          styles.overlayFill,
+          { left: col * SQUARE_SIZE, top: row * SQUARE_SIZE,
+            borderWidth: 4, borderColor: "rgba(20,85,30,0.5)" },
+        ]} />,
+      );
+    } else {
+      nodes.push(
+        <View key={`ld-${sq}`} pointerEvents="none" style={[
+          styles.legalDotAbs,
+          { left: col * SQUARE_SIZE + SQUARE_SIZE * 0.5 - 7,
+            top:  row * SQUARE_SIZE + SQUARE_SIZE * 0.5 - 7 },
+        ]} />,
+      );
+    }
+  }
+
+  return <>{nodes}</>;
+});
+
+// ─── Single square (static: piece + labels + annotation) ─────────────────────
+// Does NOT receive selection/overlay props → only re-renders when a piece
+// actually moves to/from that square, or when annotations change.
 const BoardSquare = memo(function BoardSquare({
-  sq, piece, isLight, lightColor, darkColor,
-  overlay, isLegalDot, isLegalCapture, isAnimatingFrom,
-  annOnDest, rank, file, showRankLabel, showFileLabel,
-}: SquareData & { lightColor: string; darkColor: string }) {
-  const bg = isLight ? lightColor : darkColor;
-  const labelColor = isLight ? darkColor : lightColor;
-  const annColor = annOnDest ? ANNOTATION_COLORS[annOnDest.annotation] : undefined;
+  piece, isLight, lightColor, darkColor,
+  isAnimatingFrom, annOnDest, rank, file, showRankLabel, showFileLabel,
+}: Omit<SquareData, "sq"> & { lightColor: string; darkColor: string }) {
+  const bg         = isLight ? lightColor : darkColor;
+  const labelColor = isLight ? darkColor  : lightColor;
+  const annColor   = annOnDest ? ANNOTATION_COLORS[annOnDest.annotation] : undefined;
   return (
     <View style={[styles.square, { width: SQUARE_SIZE, height: SQUARE_SIZE, backgroundColor: bg }]}>
-      {overlay        && <View style={[StyleSheet.absoluteFill, { backgroundColor: overlay }]} />}
-      {isLegalDot     && <View style={styles.legalDot} />}
-      {isLegalCapture && <View style={[styles.legalCapture, { borderColor: "rgba(20,85,30,0.5)" }]} />}
       {piece && !isAnimatingFrom && <ChessPiece piece={piece} size={SQUARE_SIZE * 0.9} />}
-      {showRankLabel  && <Text style={[styles.rankLabel,  { color: labelColor }]}>{rank}</Text>}
-      {showFileLabel  && <Text style={[styles.fileLabel,  { color: labelColor }]}>{file}</Text>}
+      {showRankLabel && <Text style={[styles.rankLabel, { color: labelColor }]}>{rank}</Text>}
+      {showFileLabel && <Text style={[styles.fileLabel, { color: labelColor }]}>{file}</Text>}
       {annOnDest && (
         <View style={[styles.annBadge, { backgroundColor: annColor, borderColor: "rgba(0,0,0,0.25)" }]}>
           <Text style={styles.annBadgeText}>
@@ -141,13 +194,13 @@ export default function ChessBoard() {
     currentPath, squareAnnotations,
   } = useBoard();
 
-  const board      = useMemo(() => fenToBoard(fen), [fen]);
-  const activeColor = fen.split(" ")[1] as PieceColor;
+  const board           = useMemo(() => fenToBoard(fen), [fen]);
+  const activeColor     = fen.split(" ")[1] as PieceColor;
   const checkedKingSquare = useMemo(() => getCheckedKingSquare(fen), [fen]);
-  const lightColor = boardTheme.id === "custom" ? customLight : boardTheme.lightSquare;
-  const darkColor  = boardTheme.id === "custom" ? customDark  : boardTheme.darkSquare;
+  const lightColor      = boardTheme.id === "custom" ? customLight : boardTheme.lightSquare;
+  const darkColor       = boardTheme.id === "custom" ? customDark  : boardTheme.darkSquare;
 
-  // ── Piece animation state ─────────────────────────────────────────────────
+  // ── Piece animation ───────────────────────────────────────────────────────
   const [animPiece, setAnimPiece] = useState<AnimPiece | null>(null);
   const animX     = useRef(new Animated.Value(0)).current;
   const animY     = useRef(new Animated.Value(0)).current;
@@ -155,14 +208,12 @@ export default function ChessBoard() {
   const pendingMove = useRef<string | null>(null);
 
   // ── User arrows ───────────────────────────────────────────────────────────
-  const [userArrows, setUserArrows] = useState<UserArrow[]>([]);
-  const [arrowFromSq, setArrowFromSq] = useState<string | null>(null);
-  // Live preview: the square currently under the finger while drawing
+  const [userArrows,    setUserArrows]    = useState<UserArrow[]>([]);
+  const [arrowFromSq,   setArrowFromSq]   = useState<string | null>(null);
   const [arrowPreviewTo, setArrowPreviewTo] = useState<string | null>(null);
-  // Avoid redundant setState calls when finger stays on the same square
   const prevArrowPreviewSqRef = useRef<string | null>(null);
 
-  // Clear user arrows when a move is played
+  // Clear arrows when a move is played
   const prevPathLen = useRef(currentPath.length);
   useEffect(() => {
     if (currentPath.length !== prevPathLen.current) {
@@ -171,25 +222,19 @@ export default function ChessBoard() {
     }
   }, [currentPath.length]);
 
-  // ── Stable helpers ────────────────────────────────────────────────────────
-  const getSquareName = useCallback((row: number, col: number): string => {
-    const r = flipped ? row : 7 - row;
-    const c = flipped ? 7 - col : col;
-    return String.fromCharCode(97 + c) + (r + 1);
-  }, [flipped]);
-
-  const getPiece = useCallback((row: number, col: number): Piece | null => {
-    const dr = flipped ? 7 - row : row;
-    const dc = flipped ? 7 - col : col;
-    return board[dr][dc];
-  }, [board, flipped]);
-
-  const getSquareOverlay = useCallback((sq: string): string | null => {
-    if (checkedKingSquare === sq) return "rgba(200,0,0,0.55)";
-    if (selectedSquare    === sq) return "rgba(20,85,30,0.5)";
-    if (legalMovesSet.has(sq))   return "rgba(20,85,30,0.3)";
-    return null;
-  }, [checkedKingSquare, selectedSquare, legalMovesSet]);
+  // ── legalCaptures: needed by OverlayLayer to show rings vs dots ──────────
+  // Recomputes when legalMovesSet changes (i.e. on piece selection) —
+  // does NOT cause squareData/BoardGrid to recompute.
+  const legalCaptures = useMemo(() => {
+    const caps = new Set<string>();
+    for (const sq of legalMovesSet) {
+      const col  = sq.charCodeAt(0) - 97;
+      const rank = parseInt(sq[1]) - 1;
+      const row  = 7 - rank;
+      if (board[row]?.[col]) caps.add(sq);
+    }
+    return caps;
+  }, [legalMovesSet, board]);
 
   // ── Move + animation ──────────────────────────────────────────────────────
   const handlePressWithAnimation = useCallback((sq: string) => {
@@ -197,23 +242,19 @@ export default function ChessBoard() {
     if (selectedSquare && legalMovesSet.has(sq) && !animPiece) {
       const fromRC = squareToRC(selectedSquare, flipped);
       const toRC   = squareToRC(sq, flipped);
-      const fromX  = fromRC.col * SQUARE_SIZE;
-      const fromY  = fromRC.row * SQUARE_SIZE;
-      const toX    = toRC.col  * SQUARE_SIZE;
-      const toY    = toRC.row  * SQUARE_SIZE;
+      const fromX  = fromRC.col * SQUARE_SIZE, fromY = fromRC.row * SQUARE_SIZE;
+      const toX    = toRC.col  * SQUARE_SIZE,  toY   = toRC.row  * SQUARE_SIZE;
       const dr = flipped ? 7 - fromRC.row : fromRC.row;
       const dc = flipped ? 7 - fromRC.col : fromRC.col;
       const piece = board[dr][dc];
       if (piece) {
         pendingMove.current = sq;
-        animX.setValue(0);
-        animY.setValue(0);
-        animScale.setValue(1.1);
+        animX.setValue(0); animY.setValue(0); animScale.setValue(1.1);
         setAnimPiece({ piece, fromSq: selectedSquare, toSq: sq, fromX, fromY, toX, toY });
         Animated.parallel([
-          Animated.timing(animX, { toValue: toX - fromX, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(animY, { toValue: toY - fromY, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(animScale, { toValue: 1, duration: 160, useNativeDriver: true }),
+          Animated.timing(animX,     { toValue: toX - fromX, duration: 155, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(animY,     { toValue: toY - fromY, duration: 155, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(animScale, { toValue: 1,           duration: 155, useNativeDriver: true }),
         ]).start(() => {
           const target = pendingMove.current;
           pendingMove.current = null;
@@ -226,26 +267,20 @@ export default function ChessBoard() {
     handleSquarePress(sq);
   }, [selectedSquare, legalMovesSet, flipped, board, animPiece, handleSquarePress, animX, animY, animScale, pendingPromotion]);
 
-  // ── Keep refs up-to-date so PanResponder always reads fresh values ─────────
-  // PanResponder is created once (useRef), never recreated — eliminates the
-  // re-render cascade caused by PanResponder recreation on every state change.
-  const flippedRef       = useRef(flipped);
-  const animPieceRef     = useRef(animPiece);
-  const handlePressRef   = useRef(handlePressWithAnimation);
-  // ref mirrors userArrows.length so the static PanResponder can check it
-  const hasArrowsRef     = useRef(false);
-  const arrowFromRef     = useRef<string | null>(null);
-  const touchStartRef    = useRef<{ sq: string; px: number; py: number } | null>(null);
+  // ── Refs for the stable PanResponder ─────────────────────────────────────
+  const flippedRef     = useRef(flipped);
+  const animPieceRef   = useRef(animPiece);
+  const handlePressRef = useRef(handlePressWithAnimation);
+  const hasArrowsRef   = useRef(false);
+  const arrowFromRef   = useRef<string | null>(null);
+  const touchStartRef  = useRef<{ sq: string; px: number; py: number } | null>(null);
 
-  useEffect(() => { flippedRef.current     = flipped;                    }, [flipped]);
-  useEffect(() => { animPieceRef.current   = animPiece;                  }, [animPiece]);
-  useEffect(() => { handlePressRef.current = handlePressWithAnimation;   }, [handlePressWithAnimation]);
-  useEffect(() => { hasArrowsRef.current   = userArrows.length > 0;      }, [userArrows]);
+  useEffect(() => { flippedRef.current     = flipped;                  }, [flipped]);
+  useEffect(() => { animPieceRef.current   = animPiece;                }, [animPiece]);
+  useEffect(() => { handlePressRef.current = handlePressWithAnimation; }, [handlePressWithAnimation]);
+  useEffect(() => { hasArrowsRef.current   = userArrows.length > 0;   }, [userArrows]);
 
-  // ── PanResponder — created ONCE, reads from refs ──────────────────────────
-  // Swipe-to-draw: no long-press. As soon as the finger travels > DRAG_THRESHOLD
-  // pixels the gesture becomes an arrow-draw and the arrow follows the finger
-  // live. A short tap either clears existing arrows or selects/moves a piece.
+  // ── PanResponder — created once ───────────────────────────────────────────
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder:        () => true,
@@ -258,24 +293,18 @@ export default function ChessBoard() {
         touchStartRef.current = { sq: sq ?? "", px: locationX, py: locationY };
       },
 
-      // As soon as the finger moves past DRAG_THRESHOLD start drawing the arrow
-      // live.  Only re-render when the square changes (max 64 calls per drag).
       onPanResponderMove: (evt) => {
         const start = touchStartRef.current;
         if (!start) return;
         const { locationX, locationY } = evt.nativeEvent;
-        const dx = locationX - start.px;
-        const dy = locationY - start.py;
+        const dx = locationX - start.px, dy = locationY - start.py;
 
         if (!arrowFromRef.current) {
-          // Not yet in draw mode — check if we've crossed the drag threshold
           if (Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
-          // Enter draw mode immediately
-          arrowFromRef.current = start.sq;
+          arrowFromRef.current          = start.sq;
           prevArrowPreviewSqRef.current = start.sq;
           setArrowFromSq(start.sq);
         }
-
         const sq = posToSq(locationX, locationY, flippedRef.current);
         if (sq !== prevArrowPreviewSqRef.current) {
           prevArrowPreviewSqRef.current = sq;
@@ -296,7 +325,6 @@ export default function ChessBoard() {
         setArrowPreviewTo(null);
 
         if (fromSq) {
-          // Arrow draw gesture — save if the finger landed on a different square
           if (endSq && endSq !== fromSq) {
             setUserArrows(prev => {
               const idx = prev.findIndex(a => a.from === fromSq && a.to === endSq);
@@ -306,17 +334,13 @@ export default function ChessBoard() {
           return;
         }
 
-        // Short tap — check movement
         if (!start) return;
-        const dx   = locationX - start.px;
-        const dy   = locationY - start.py;
-        if (Math.sqrt(dx * dx + dy * dy) >= TAP_MOVE_PX) return; // too much drift
+        const dx = locationX - start.px, dy = locationY - start.py;
+        if (Math.sqrt(dx * dx + dy * dy) >= TAP_MOVE_PX) return;
 
         if (hasArrowsRef.current) {
-          // Arrows exist → tap just clears them, don't move pieces
           setUserArrows([]);
         } else if (!animPieceRef.current) {
-          // No arrows → normal piece logic
           handlePressRef.current(start.sq || endSq || "");
         }
       },
@@ -331,26 +355,33 @@ export default function ChessBoard() {
     })
   ).current;
 
-  // ── Square data (memoized) ────────────────────────────────────────────────
+  // ── Square data — NO selection state in deps ──────────────────────────────
+  // This only recomputes when pieces actually move (board/flipped/animPiece
+  // change), NOT when the user taps to select a piece. Taps only re-render
+  // the lightweight OverlayLayer above.
   const squareData = useMemo((): SquareData[][] => {
     const rows: SquareData[][] = [];
     for (let row = 0; row < 8; row++) {
       const cols: SquareData[] = [];
       for (let col = 0; col < 8; col++) {
-        const sq    = getSquareName(row, col);
-        const piece = getPiece(row, col);
-        const vr = flipped ? 7 - row : row;
-        const vc = flipped ? 7 - col : col;
+        const r  = flipped ? row : 7 - row;
+        const c  = flipped ? 7 - col : col;
+        const sq = String.fromCharCode(97 + c) + (r + 1);
+
+        const dr    = flipped ? 7 - row : row;
+        const dc    = flipped ? 7 - col : col;
+        const piece = board[dr][dc];
+
+        const vr      = flipped ? 7 - row : row;
+        const vc      = flipped ? 7 - col : col;
         const isLight = (vr + vc) % 2 === 0;
+
         cols.push({
           sq, piece, isLight,
-          overlay:         getSquareOverlay(sq),
-          isLegalDot:      legalMovesSet.has(sq) && !piece,
-          isLegalCapture:  legalMovesSet.has(sq) && !!piece,
           isAnimatingFrom: animPiece?.fromSq === sq,
           annOnDest:       squareAnnotations[sq],
-          rank:  flipped ? row + 1 : 8 - row,
-          file:  flipped ? String.fromCharCode(104 - col) : String.fromCharCode(97 + col),
+          rank:         flipped ? row + 1 : 8 - row,
+          file:         flipped ? String.fromCharCode(104 - col) : String.fromCharCode(97 + col),
           showRankLabel: col === 0,
           showFileLabel: row === 7,
         });
@@ -358,62 +389,79 @@ export default function ChessBoard() {
       rows.push(cols);
     }
     return rows;
-  }, [getSquareName, getPiece, flipped, getSquareOverlay, legalMovesSet, animPiece, squareAnnotations]);
+  }, [board, flipped, animPiece, squareAnnotations]);
+  // ← selectedSquare / legalMovesSet / checkedKingSquare intentionally absent
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
       <View style={[styles.board, { width: BOARD_SIZE, height: BOARD_SIZE }]}>
 
-        {/* 64 squares */}
+        {/* Layer 1 — static 8×8 grid (pieces + labels + annotation badges)
+            Only re-renders when pieces move, board flips, or annotations change. */}
         {squareData.map((rowCols, row) => (
           <View key={row} style={styles.row}>
             {rowCols.map((data) => (
-              <BoardSquare key={data.sq} {...data} lightColor={lightColor} darkColor={darkColor} />
+              <BoardSquare
+                key={data.sq}
+                piece={data.piece}
+                isLight={data.isLight}
+                lightColor={lightColor}
+                darkColor={darkColor}
+                isAnimatingFrom={data.isAnimatingFrom}
+                annOnDest={data.annOnDest}
+                rank={data.rank}
+                file={data.file}
+                showRankLabel={data.showRankLabel}
+                showFileLabel={data.showFileLabel}
+              />
             ))}
           </View>
         ))}
 
-        {/* Saved user-drawn arrows */}
+        {/* Layer 2 — dynamic overlays (selection / legal moves / check tint)
+            Only this layer re-renders on piece selection — board squares stay frozen. */}
+        <OverlayLayer
+          selectedSquare={selectedSquare}
+          legalMovesSet={legalMovesSet}
+          legalCaptures={legalCaptures}
+          checkedKingSquare={checkedKingSquare}
+          flipped={flipped}
+        />
+
+        {/* Layer 3 — user arrows */}
         {userArrows.map((a, i) => (
           <Arrow key={i} from={a.from} to={a.to} flipped={flipped} color="#1976d2" />
         ))}
 
-        {/* Live preview arrow — follows finger as you drag */}
+        {/* Layer 3b — live preview arrow while swiping */}
         {arrowFromSq && arrowPreviewTo && arrowPreviewTo !== arrowFromSq && (
           <Arrow from={arrowFromSq} to={arrowPreviewTo} flipped={flipped} color="#1976d2" />
         )}
 
-        {/* Arrow-from square highlight while holding */}
+        {/* Arrow-from square highlight */}
         {arrowFromSq && (() => {
-          const rc = squareToRC(arrowFromSq, flipped);
+          const { row, col } = squareToRC(arrowFromSq, flipped);
           return (
-            <View
-              pointerEvents="none"
-              style={[styles.arrowFromHighlight, {
-                left: rc.col * SQUARE_SIZE, top: rc.row * SQUARE_SIZE,
-                width: SQUARE_SIZE, height: SQUARE_SIZE,
-              }]}
-            />
+            <View pointerEvents="none" style={[styles.arrowFromHighlight, {
+              left: col * SQUARE_SIZE, top: row * SQUARE_SIZE,
+              width: SQUARE_SIZE, height: SQUARE_SIZE,
+            }]} />
           );
         })()}
 
-        {/* Animated piece */}
+        {/* Layer 4 — animated piece (floats above board during move) */}
         {animPiece && (
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.animPiece, {
-              left: animPiece.fromX, top: animPiece.fromY,
-              width: SQUARE_SIZE, height: SQUARE_SIZE,
-              transform: [{ translateX: animX }, { translateY: animY }, { scale: animScale }],
-            }]}
-          >
+          <Animated.View pointerEvents="none" style={[styles.animPiece, {
+            left: animPiece.fromX, top: animPiece.fromY,
+            width: SQUARE_SIZE, height: SQUARE_SIZE,
+            transform: [{ translateX: animX }, { translateY: animY }, { scale: animScale }],
+          }]}>
             <ChessPiece piece={animPiece.piece} size={SQUARE_SIZE * 0.9} />
           </Animated.View>
         )}
 
-        {/* ── Touch overlay — sits on top of everything, PanResponder attached here.
-               absoluteFill guarantees locationX/Y are always board-relative. ── */}
+        {/* Touch overlay — receives all gestures, sits topmost */}
         <View style={styles.touchOverlay} {...panResponder.panHandlers} />
       </View>
 
@@ -431,23 +479,31 @@ export default function ChessBoard() {
 }
 
 const styles = StyleSheet.create({
-  container:  { alignItems: "center", position: "relative" },
-  board:      { borderWidth: 2, borderColor: "#2d3748", overflow: "hidden", position: "relative" },
-  row:        { flexDirection: "row" },
-  square:     { justifyContent: "center", alignItems: "center", position: "relative" },
-  legalDot:   { width: 14, height: 14, borderRadius: 7, backgroundColor: "rgba(20,85,30,0.45)", position: "absolute" },
-  legalCapture: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderWidth: 4 },
-  rankLabel:  { position: "absolute", top: 1,    left: 2,  fontSize: 9, fontWeight: "700" },
-  fileLabel:  { position: "absolute", bottom: 1, right: 2, fontSize: 9, fontWeight: "700" },
-  animPiece:  { position: "absolute", justifyContent: "center", alignItems: "center", zIndex: 100 },
+  container:    { alignItems: "center", position: "relative" },
+  board:        { borderWidth: 2, borderColor: "#2d3748", overflow: "hidden", position: "relative" },
+  row:          { flexDirection: "row" },
+  square:       { justifyContent: "center", alignItems: "center", position: "relative" },
+  rankLabel:    { position: "absolute", top: 1,    left: 2,  fontSize: 9, fontWeight: "700" },
+  fileLabel:    { position: "absolute", bottom: 1, right: 2, fontSize: 9, fontWeight: "700" },
+  animPiece:    { position: "absolute", justifyContent: "center", alignItems: "center", zIndex: 100 },
   annBadge: {
     position: "absolute", top: 1, right: 1,
     width: 20, height: 20, borderRadius: 10, borderWidth: 1.5,
     justifyContent: "center", alignItems: "center", zIndex: 20,
   },
   annBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", lineHeight: 12, textAlign: "center" },
+
+  // Overlay layer styles
+  overlayFill: {
+    position: "absolute",
+    width: SQUARE_SIZE, height: SQUARE_SIZE,
+  },
+  legalDotAbs: {
+    position: "absolute",
+    width: 14, height: 14, borderRadius: 7,
+    backgroundColor: "rgba(20,85,30,0.45)",
+  },
+
   arrowFromHighlight: { position: "absolute", backgroundColor: "rgba(25,118,210,0.35)", zIndex: 5 },
-  // Transparent layer on top of board — PanResponder target.
-  // zIndex 200 ensures it is above pieces, arrows, and animation layers.
-  touchOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 200, backgroundColor: "transparent" },
+  touchOverlay:       { ...StyleSheet.absoluteFillObject, zIndex: 200, backgroundColor: "transparent" },
 });
