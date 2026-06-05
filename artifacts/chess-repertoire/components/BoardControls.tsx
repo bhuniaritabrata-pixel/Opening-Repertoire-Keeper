@@ -5,19 +5,16 @@ import { StyleSheet, TouchableOpacity, View } from "react-native";
 import { useBoard } from "@/context/BoardContext";
 import { useColors } from "@/hooks/useColors";
 
-// memo: BoardControls only re-renders when navigation state (currentPath,
-// flipped, locked, showBoardAnnotations) changes — NOT on piece taps, because
-// those only update BoardSelectionContext which BoardControls never reads.
 export default memo(function BoardControls() {
   const colors = useColors();
   const {
     goBack, goForward, goToStart, goToEnd,
     flipped, setFlipped,
-    currentPath, locked, setLocked,
-    showBoardAnnotations, toggleBoardAnnotations,
+    currentMoveIndex, moves,
   } = useBoard();
 
-  const canGoBack = currentPath.length > 0;
+  const canGoBack    = currentMoveIndex > 0;
+  const canGoForward = currentMoveIndex < moves.length;
 
   const press = (fn: () => void) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -42,12 +39,20 @@ export default memo(function BoardControls() {
         <Feather name="chevron-left" size={22} color={canGoBack ? colors.foreground : colors.mutedForeground} />
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.btn} onPress={() => press(goForward)}>
-        <Feather name="chevron-right" size={22} color={colors.foreground} />
+      <TouchableOpacity
+        style={[styles.btn, !canGoForward && styles.disabled]}
+        onPress={() => press(goForward)}
+        disabled={!canGoForward}
+      >
+        <Feather name="chevron-right" size={22} color={canGoForward ? colors.foreground : colors.mutedForeground} />
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.btn} onPress={() => press(goToEnd)}>
-        <Feather name="skip-forward" size={20} color={colors.primary} />
+      <TouchableOpacity
+        style={[styles.btn, !canGoForward && styles.disabled]}
+        onPress={() => press(goToEnd)}
+        disabled={!canGoForward}
+      >
+        <Feather name="skip-forward" size={20} color={canGoForward ? colors.primary : colors.mutedForeground} />
       </TouchableOpacity>
 
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -60,32 +65,6 @@ export default memo(function BoardControls() {
         }}
       >
         <Feather name="refresh-cw" size={20} color={colors.accent} />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.btn, !showBoardAnnotations && { backgroundColor: colors.muted + "44" }]}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          toggleBoardAnnotations();
-        }}
-        accessibilityLabel={showBoardAnnotations ? "Hide board annotations" : "Show board annotations"}
-      >
-        <Feather
-          name={showBoardAnnotations ? "eye" : "eye-off"}
-          size={20}
-          color={showBoardAnnotations ? colors.primary : colors.mutedForeground}
-        />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.btn, locked && { backgroundColor: colors.destructive + "22" }]}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          setLocked(!locked);
-        }}
-        accessibilityLabel={locked ? "Unlock board" : "Lock board"}
-      >
-        <Feather name={locked ? "lock" : "unlock"} size={20} color={locked ? colors.destructive : colors.accent} />
       </TouchableOpacity>
     </View>
   );

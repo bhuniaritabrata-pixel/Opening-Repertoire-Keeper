@@ -1,289 +1,87 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Folder, MoveNode, Opening, SortMode, STARTING_FEN, generateId } from "@/types/chess";
-import { parsePgnToSans, sanToMove, applyMove } from "@/utils/chess";
+import { ChessMove, Line, STARTING_FEN, generateId } from "@/types/chess";
 
-const STORAGE_KEY = "@chess_repertoire";
-const FOLDERS_KEY = "@chess_folders";
-const SORT_KEY = "@chess_sort_mode";
+const STORAGE_KEY = "@chess_lines_v2";
 
 interface RepertoireContextType {
-  openings: Opening[];
-  folders: Folder[];
-  sortMode: SortMode;
-  setSortMode: (mode: SortMode) => void;
-  currentOpeningId: string | null;
-  setCurrentOpeningId: (id: string | null) => void;
-  addOpening: (name: string, color: Opening["color"], description?: string, folderId?: string | null) => string;
-  deleteOpening: (id: string) => void;
-  updateOpening: (id: string, updates: Partial<Opening>) => void;
-  renameOpening: (id: string, name: string) => void;
-  moveOpeningToFolder: (openingId: string, folderId: string | null) => void;
-  reorderOpenings: (newIds: string[]) => void;
-  addFolder: (name: string) => string;
-  deleteFolder: (id: string, deleteContents: boolean) => void;
-  renameFolder: (id: string, name: string) => void;
-  reorderFolders: (newIds: string[]) => void;
-  addMoveToOpening: (openingId: string, parentId: string | null, from: string, to: string, san: string, fen: string) => MoveNode | null;
-  deleteMoveNode: (openingId: string, nodeId: string) => void;
-  importPgn: (openingId: string, pgn: string) => boolean;
+  lines: Line[];
+  addLine: (name: string, color: Line["color"], startFen?: string, moves?: ChessMove[]) => string;
+  deleteLine: (id: string) => void;
+  renameLine: (id: string, name: string) => void;
+  updateLineMoves: (id: string, moves: ChessMove[]) => void;
   isLoading: boolean;
 }
 
 const RepertoireContext = createContext<RepertoireContextType | null>(null);
 
+function persistLines(newLines: Line[]) {
+  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newLines));
+}
+
 export function RepertoireProvider({ children }: { children: React.ReactNode }) {
-  const [openings, setOpenings] = useState<Opening[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [sortMode, setSortModeState] = useState<SortMode>("manual");
-  const [currentOpeningId, setCurrentOpeningId] = useState<string | null>(null);
+  const [lines, setLines] = useState<Line[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(STORAGE_KEY),
-      AsyncStorage.getItem(FOLDERS_KEY),
-      AsyncStorage.getItem(SORT_KEY),
-    ]).then(([openingsData, foldersData, sortData]) => {
-      if (openingsData) {
-        try { setOpenings(JSON.parse(openingsData)); } catch {}
-      }
-      if (foldersData) {
-        try { setFolders(JSON.parse(foldersData)); } catch {}
-      }
-      if (sortData) {
-        try { setSortModeState(JSON.parse(sortData)); } catch {}
+    AsyncStorage.getItem(STORAGE_KEY).then((data) => {
+      if (data) {
+        try { setLines(JSON.parse(data)); } catch {}
       }
       setIsLoading(false);
     });
   }, []);
 
-  const saveOpenings = useCallback((newOpenings: Opening[]) => {
-    setOpenings(newOpenings);
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newOpenings));
-  }, []);
-
-  const saveFolders = useCallback((newFolders: Folder[]) => {
-    setFolders(newFolders);
-    AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(newFolders));
-  }, []);
-
-  const setSortMode = useCallback((mode: SortMode) => {
-    setSortModeState(mode);
-    AsyncStorage.setItem(SORT_KEY, JSON.stringify(mode));
-  }, []);
-
-  const addOpening = useCallback((name: string, color: Opening["color"], description?: string, folderId?: string | null): string => {
+  const addLine = useCallback((
+    name: string,
+    color: Line["color"] = "white",
+    startFen?: string,
+    moves: ChessMove[] = [],
+  ): string => {
     const id = generateId();
-    const maxOrder = Math.max(0, ...openings.map(o => o.order ?? 0));
-    const opening: Opening = {
-      id, name, color, description,
-      rootFen: STARTING_FEN,
-      moveTree: [],
+    const newLine: Line = {
+      id, name, color,
+      moves,
+      startFen: startFen || STARTING_FEN,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      folderId: folderId ?? null,
-      order: maxOrder + 1,
     };
-    saveOpenings([...openings, opening]);
+    setLines(prev => {
+      const updated = [...prev, newLine];
+      persistLines(updated);
+      return updated;
+    });
     return id;
-  }, [openings, saveOpenings]);
+  }, []);
 
-  const deleteOpening = useCallback((id: string) => {
-    saveOpenings(openings.filter(o => o.id !== id));
-    if (currentOpeningId === id) setCurrentOpeningId(null);
-  }, [openings, currentOpeningId, saveOpenings]);
+  const deleteLine = useCallback((id: string) => {
+    setLines(prev => {
+      const updated = prev.filter(l => l.id !== id);
+      persistLines(updated);
+      return updated;
+    });
+  }, []);
 
-  const updateOpening = useCallback((id: string, updates: Partial<Opening>) => {
-    saveOpenings(openings.map(o => o.id === id ? { ...o, ...updates, updatedAt: Date.now() } : o));
-  }, [openings, saveOpenings]);
+  const renameLine = useCallback((id: string, name: string) => {
+    setLines(prev => {
+      const updated = prev.map(l => l.id === id ? { ...l, name, updatedAt: Date.now() } : l);
+      persistLines(updated);
+      return updated;
+    });
+  }, []);
 
-  const renameOpening = useCallback((id: string, name: string) => {
-    saveOpenings(openings.map(o => o.id === id ? { ...o, name, updatedAt: Date.now() } : o));
-  }, [openings, saveOpenings]);
+  const updateLineMoves = useCallback((id: string, moves: ChessMove[]) => {
+    setLines(prev => {
+      const updated = prev.map(l => l.id === id ? { ...l, moves, updatedAt: Date.now() } : l);
+      persistLines(updated);
+      return updated;
+    });
+  }, []);
 
-  const moveOpeningToFolder = useCallback((openingId: string, folderId: string | null) => {
-    saveOpenings(openings.map(o => o.id === openingId ? { ...o, folderId, updatedAt: Date.now() } : o));
-  }, [openings, saveOpenings]);
-
-  const reorderOpenings = useCallback((newIds: string[]) => {
-    const reordered = newIds.map((id, index) => {
-      const o = openings.find(op => op.id === id);
-      return o ? { ...o, order: index } : null;
-    }).filter(Boolean) as Opening[];
-    // Include any openings not in newIds
-    const missing = openings.filter(o => !newIds.includes(o.id));
-    saveOpenings([...reordered, ...missing]);
-  }, [openings, saveOpenings]);
-
-  const addFolder = useCallback((name: string): string => {
-    const id = generateId();
-    const maxOrder = Math.max(0, ...folders.map(f => f.order ?? 0));
-    const folder: Folder = { id, name, createdAt: Date.now(), order: maxOrder + 1 };
-    saveFolders([...folders, folder]);
-    return id;
-  }, [folders, saveFolders]);
-
-  const deleteFolder = useCallback((id: string, deleteContents: boolean) => {
-    saveFolders(folders.filter(f => f.id !== id));
-    if (deleteContents) {
-      saveOpenings(openings.filter(o => o.folderId !== id));
-    } else {
-      saveOpenings(openings.map(o => o.folderId === id ? { ...o, folderId: null } : o));
-    }
-  }, [folders, openings, saveFolders, saveOpenings]);
-
-  const renameFolder = useCallback((id: string, name: string) => {
-    saveFolders(folders.map(f => f.id === id ? { ...f, name } : f));
-  }, [folders, saveFolders]);
-
-  const reorderFolders = useCallback((newIds: string[]) => {
-    const reordered = newIds.map((id, index) => {
-      const f = folders.find(fo => fo.id === id);
-      return f ? { ...f, order: index } : null;
-    }).filter(Boolean) as Folder[];
-    const missing = folders.filter(f => !newIds.includes(f.id));
-    saveFolders([...reordered, ...missing]);
-  }, [folders, saveFolders]);
-
-  const addMoveToOpening = useCallback((
-    openingId: string, parentId: string | null,
-    from: string, to: string, san: string, fen: string
-  ): MoveNode | null => {
-    const opening = openings.find(o => o.id === openingId);
-    if (!opening) return null;
-    const nodeId = generateId();
-    const newNode: MoveNode = {
-      id: nodeId,
-      move: { from, to, san, fen, annotation: undefined, comment: undefined },
-      children: [],
-      parentId,
-    };
-    let existingNode: MoveNode | null = null;
-    function insertNode(nodes: MoveNode[]): MoveNode[] {
-      if (parentId === null) {
-        const existing = nodes.find(n => n.move.san === san && n.move.from === from && n.move.to === to);
-        if (existing) { existingNode = existing; return nodes; }
-        return [...nodes, newNode];
-      }
-      return nodes.map(n => {
-        if (n.id === parentId) {
-          const existing = n.children.find(c => c.move.san === san && c.move.from === from && c.move.to === to);
-          if (existing) { existingNode = existing; return n; }
-          return { ...n, children: [...n.children, newNode] };
-        }
-        return { ...n, children: insertNode(n.children) };
-      });
-    }
-    const newTree = insertNode(opening.moveTree);
-    // If the move already existed, return it without touching storage
-    if (existingNode) return existingNode;
-    saveOpenings(openings.map(o => o.id === openingId ? { ...o, moveTree: newTree, updatedAt: Date.now() } : o));
-    return newNode;
-  }, [openings, saveOpenings]);
-
-  const deleteMoveNode = useCallback((openingId: string, nodeId: string) => {
-    const opening = openings.find(o => o.id === openingId);
-    if (!opening) return;
-    function removeNode(nodes: MoveNode[]): MoveNode[] {
-      return nodes.filter(n => n.id !== nodeId).map(n => ({ ...n, children: removeNode(n.children) }));
-    }
-    const newTree = removeNode(opening.moveTree);
-    saveOpenings(openings.map(o => o.id === openingId ? { ...o, moveTree: newTree, updatedAt: Date.now() } : o));
-  }, [openings, saveOpenings]);
-
-  const importPgn = useCallback((openingId: string, pgn: string): boolean => {
-    try {
-      const opening = openings.find(o => o.id === openingId);
-      if (!opening) return false;
-
-      const sans = parsePgnToSans(pgn);
-      if (!sans.length) return false;
-
-      let currentParentId: string | null = null;
-      let currentFen = STARTING_FEN;
-
-      const newOpenings = [...openings];
-      const openingIdx = newOpenings.findIndex(o => o.id === openingId);
-      if (openingIdx === -1) return false;
-
-      let imported = 0;
-      for (const san of sans) {
-        // Resolve SAN → from/to using actual move generation
-        const resolved = sanToMove(currentFen, san);
-        if (!resolved) break; // stop at first unresolvable token
-
-        const moveResult = applyMove(currentFen, resolved.from, resolved.to, resolved.promotion ?? "q");
-        if (!moveResult) break;
-
-        const nodeId = generateId();
-        const newNode: MoveNode = {
-          id: nodeId,
-          move: {
-            from: resolved.from,
-            to: resolved.to,
-            san: moveResult.san,
-            fen: moveResult.fen,
-            annotation: undefined,
-            comment: undefined,
-          },
-          children: [],
-          parentId: currentParentId,
-        };
-
-        const parentIdSnapshot = currentParentId;
-        function insertNode(nodes: MoveNode[]): MoveNode[] {
-          if (parentIdSnapshot === null) {
-            // Avoid duplicates at root
-            const dup = nodes.find(n => n.move.from === resolved!.from && n.move.to === resolved!.to);
-            if (dup) return nodes;
-            return [...nodes, newNode];
-          }
-          return nodes.map(n => {
-            if (n.id === parentIdSnapshot) {
-              const dup = n.children.find(c => c.move.from === resolved!.from && c.move.to === resolved!.to);
-              if (dup) return n;
-              return { ...n, children: [...n.children, newNode] };
-            }
-            return { ...n, children: insertNode(n.children) };
-          });
-        }
-
-        newOpenings[openingIdx] = {
-          ...newOpenings[openingIdx],
-          moveTree: insertNode(newOpenings[openingIdx].moveTree),
-          updatedAt: Date.now(),
-        };
-
-        currentParentId = nodeId;
-        currentFen = moveResult.fen;
-        imported++;
-      }
-
-      if (imported === 0) return false;
-      saveOpenings(newOpenings);
-      return true;
-    } catch { return false; }
-  }, [openings, saveOpenings]);
-
-  // useMemo ensures all consumers only re-render when something they actually
-  // use changes — not on unrelated state updates inside this provider.
   const ctxValue = useMemo(() => ({
-    openings, folders, sortMode, setSortMode,
-    currentOpeningId, setCurrentOpeningId,
-    addOpening, deleteOpening, updateOpening, renameOpening,
-    moveOpeningToFolder, reorderOpenings,
-    addFolder, deleteFolder, renameFolder, reorderFolders,
-    addMoveToOpening, deleteMoveNode, importPgn,
-    isLoading,
-  }), [
-    openings, folders, sortMode, currentOpeningId, isLoading,
-    setSortMode, setCurrentOpeningId,
-    addOpening, deleteOpening, updateOpening, renameOpening,
-    moveOpeningToFolder, reorderOpenings,
-    addFolder, deleteFolder, renameFolder, reorderFolders,
-    addMoveToOpening, deleteMoveNode, importPgn,
-  ]);
+    lines, isLoading,
+    addLine, deleteLine, renameLine, updateLineMoves,
+  }), [lines, isLoading, addLine, deleteLine, renameLine, updateLineMoves]);
 
   return (
     <RepertoireContext.Provider value={ctxValue}>

@@ -1,21 +1,8 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { BoardTheme, BOARD_THEMES, MoveAnnotation, MoveNode, Opening, STARTING_FEN } from "@/types/chess";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { BoardTheme, BOARD_THEMES, ChessMove, Line, STARTING_FEN } from "@/types/chess";
 import { applyMove, getLegalMoves } from "@/utils/chess";
-import { useRepertoire } from "@/context/RepertoireContext";
-
-function findNodeById(nodes: MoveNode[], id: string | null): MoveNode | null {
-  if (!id) return null;
-  for (const n of nodes) {
-    if (n.id === id) return n;
-    const found = findNodeById(n.children, id);
-    if (found) return found;
-  }
-  return null;
-}
 
 // ─── Context A: Selection ─────────────────────────────────────────────────────
-// Changes on EVERY piece tap. Only ChessBoard subscribes to this context so
-// MoveTree / BoardControls / BoardScreen are never re-rendered by taps.
 interface BoardSelectionContextType {
   selectedSquare:    string | null;
   legalMovesSet:     Set<string>;
@@ -27,78 +14,99 @@ interface BoardSelectionContextType {
 }
 
 // ─── Context B: Board / navigation ────────────────────────────────────────────
-// Changes only when moves are played or the user navigates the tree.
 interface BoardContextType {
-  fen:                   string;
-  setFen:                (fen: string) => void;
-  flipped:               boolean;
-  setFlipped:            (f: boolean) => void;
-  boardTheme:            BoardTheme;
-  setBoardTheme:         (theme: BoardTheme) => void;
-  customLight:           string;
-  customDark:            string;
-  setCustomLight:        (c: string) => void;
-  setCustomDark:         (c: string) => void;
-  currentPath:           MoveNode[];
-  currentNodeId:         string | null;
-  goToMove:              (node: MoveNode | null, path: MoveNode[]) => void;
-  goBack:                () => void;
-  goForward:             (childIndex?: number) => void;
-  goToStart:             () => void;
-  goToEnd:               () => void;
-  annotateNode:          (nodeId: string, annotation: MoveAnnotation | undefined) => void;
-  noteNode:              (nodeId: string, note: string) => void;
-  currentNote:           string;
-  locked:                boolean;
-  setLocked:             (l: boolean) => void;
-  deleteCurrentMove:     () => void;
-  showBoardAnnotations:  boolean;
-  toggleBoardAnnotations:() => void;
-  squareAnnotations:     Record<string, { annotation: MoveAnnotation; from: string }>;
+  fen:              string;
+  flipped:          boolean;
+  setFlipped:       (f: boolean) => void;
+  boardTheme:       BoardTheme;
+  setBoardTheme:    (theme: BoardTheme) => void;
+  customLight:      string;
+  customDark:       string;
+  setCustomLight:   (c: string) => void;
+  setCustomDark:    (c: string) => void;
+  moves:            ChessMove[];
+  currentMoveIndex: number;
+  goBack:           () => void;
+  goForward:        () => void;
+  goToStart:        () => void;
+  goToEnd:          () => void;
+  isDirty:          boolean;
+  squareAnnotations: Record<string, never>;
+  showBoardAnnotations: boolean;
+  toggleBoardAnnotations: () => void;
 }
 
 const BoardContext          = createContext<BoardContextType | null>(null);
 const BoardSelectionContext = createContext<BoardSelectionContextType | null>(null);
 
 interface BoardProviderProps {
-  children: React.ReactNode;
-  opening:  Opening | null;
+  children:  React.ReactNode;
+  line:      Line | null;
+  startFen?: string;
+  onMovePlayed?: (moves: ChessMove[]) => void;
 }
 
-export function BoardProvider({ children, opening }: BoardProviderProps) {
-  const { addMoveToOpening, updateOpening, deleteMoveNode } = useRepertoire();
+export function BoardProvider({ children, line, startFen, onMovePlayed }: BoardProviderProps) {
+  const effectiveStartFen = line?.startFen || startFen || STARTING_FEN;
+  const initialMoves      = line?.moves || [];
 
-  // ── Position / navigation state ──────────────────────────────────────────
-  const [fen,            setFen]            = useState(opening?.rootFen || STARTING_FEN);
-  const [flipped,        setFlipped]        = useState(opening?.color === "black");
-  const [boardTheme,     setBoardTheme]     = useState<BoardTheme>(BOARD_THEMES[0]);
-  const [customLight,    setCustomLight]    = useState("#f0d9b5");
-  const [customDark,     setCustomDark]     = useState("#b58863");
-  const [currentPath,    setCurrentPath]    = useState<MoveNode[]>([]);
-  const [currentNodeId,  setCurrentNodeId]  = useState<string | null>(null);
-  const [locked,         setLocked]         = useState(false);
+  const [moves,            setMoves]            = useState<ChessMove[]>(initialMoves);
+  const [currentMoveIndex, setCurrentMoveIndex] = useState<number>(initialMoves.length);
+  const [flipped,          setFlipped]          = useState(line?.color === "black");
+  const [boardTheme,       setBoardTheme]       = useState<BoardTheme>(BOARD_THEMES[0]);
+  const [customLight,      setCustomLight]      = useState("#f0d9b5");
+  const [customDark,       setCustomDark]       = useState("#b58863");
+  const [isDirty,          setIsDirty]          = useState(false);
   const [showBoardAnnotations, setShowBoardAnnotations] = useState(true);
 
-  // ── Selection state (isolated — only ChessBoard reads this) ──────────────
-  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
-  const [legalMoves,     setLegalMoves]     = useState<string[]>([]);
+  const toggleBoardAnnotations = useCallback(() => setShowBoardAnnotations(v => !v), []);
+
+  // Current FEN: start + moves up to currentMoveIndex
+  const fen = useMemo(() => {
+    if (currentMoveIndex === 0) return effectiveStartFen;
+    return moves[currentMoveIndex - 1]?.fen ?? effectiveStartFen;
+  }, [moves, currentMoveIndex, effectiveStartFen]);
+
+  // Sync when line changes (e.g. navigating to a different line)
+  const lineIdRef = useRef(line?.id);
+  useEffect(() => {
+    if (line?.id !== lineIdRef.current) {
+      lineIdRef.current = line?.id;
+      const newMoves = line?.moves || [];
+      setMoves(newMoves);
+      setCurrentMoveIndex(newMoves.length);
+      setIsDirty(false);
+    }
+  }, [line]);
+
+  // ── Selection state ───────────────────────────────────────────────────────
+  const [selectedSquare,  setSelectedSquare]  = useState<string | null>(null);
+  const [legalMoves,      setLegalMoves]      = useState<string[]>([]);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
   const [promotionSquare,  setPromotionSquare]  = useState<string | null>(null);
 
   const legalMovesSet = useMemo(() => new Set(legalMoves), [legalMoves]);
 
-  const toggleBoardAnnotations = useCallback(() => setShowBoardAnnotations(v => !v), []);
+  const playMove = useCallback((from: string, to: string, promotion?: string) => {
+    const result = applyMove(fen, from, to, promotion as any);
+    if (!result) return;
 
-  const squareAnnotations = useMemo<Record<string, { annotation: MoveAnnotation; from: string }>>(() => {
-    if (!showBoardAnnotations || !currentNodeId) return {};
-    const currentNode = currentPath[currentPath.length - 1];
-    if (!currentNode || currentNode.id !== currentNodeId || !currentNode.move.annotation) return {};
-    return {
-      [currentNode.move.to]: { annotation: currentNode.move.annotation, from: currentNode.move.from },
-    };
-  }, [currentPath, currentNodeId, showBoardAnnotations]);
+    setMoves(prev => {
+      const truncated = prev.slice(0, currentMoveIndex);
+      const move: ChessMove = {
+        from, to, san: result.san, fen: result.fen,
+        promotion: promotion as any,
+      };
+      const newMoves = [...truncated, move];
+      onMovePlayed?.(newMoves);
+      return newMoves;
+    });
+    setCurrentMoveIndex(prev => prev + 1);
+    setIsDirty(true);
+    setSelectedSquare(null);
+    setLegalMoves([]);
+  }, [fen, currentMoveIndex, onMovePlayed]);
 
-  // ── Piece interaction ─────────────────────────────────────────────────────
   const handleSquarePress = useCallback((sq: string) => {
     if (pendingPromotion) return;
 
@@ -109,9 +117,9 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
     }
 
     if (selectedSquare && legalMovesSet.has(sq)) {
-      const isWhitePawn = fen.split(" ")[1] === "w";
+      const isWhiteTurn = fen.split(" ")[1] === "w";
       const toRank = sq.charCodeAt(1) - "1".charCodeAt(0);
-      if ((toRank === 7 && isWhitePawn) || (toRank === 0 && !isWhitePawn)) {
+      if ((toRank === 7 && isWhiteTurn) || (toRank === 0 && !isWhiteTurn)) {
         const result = applyMove(fen, selectedSquare, sq, "q");
         if (result && result.san.includes("=")) {
           setPendingPromotion({ from: selectedSquare, to: sq });
@@ -121,19 +129,7 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
           return;
         }
       }
-      const result = applyMove(fen, selectedSquare, sq);
-      if (result) {
-        setFen(result.fen);
-        setSelectedSquare(null);
-        setLegalMoves([]);
-        if (opening && !locked) {
-          const newNode = addMoveToOpening(opening.id, currentNodeId, selectedSquare, sq, result.san, result.fen);
-          if (newNode) {
-            setCurrentPath(prev => [...prev, newNode]);
-            setCurrentNodeId(newNode.id);
-          }
-        }
-      }
+      playMove(selectedSquare, sq);
       return;
     }
 
@@ -145,24 +141,14 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
       setSelectedSquare(null);
       setLegalMoves([]);
     }
-  }, [selectedSquare, legalMovesSet, fen, opening, currentNodeId, addMoveToOpening, pendingPromotion, locked]);
+  }, [selectedSquare, legalMovesSet, fen, pendingPromotion, playMove]);
 
   const confirmPromotion = useCallback((piece: string) => {
     if (!pendingPromotion) return;
-    const result = applyMove(fen, pendingPromotion.from, pendingPromotion.to, piece as any);
-    if (result) {
-      setFen(result.fen);
-      if (opening && !locked) {
-        const newNode = addMoveToOpening(opening.id, currentNodeId, pendingPromotion.from, pendingPromotion.to, result.san, result.fen);
-        if (newNode) {
-          setCurrentPath(prev => [...prev, newNode]);
-          setCurrentNodeId(newNode.id);
-        }
-      }
-    }
+    playMove(pendingPromotion.from, pendingPromotion.to, piece);
     setPendingPromotion(null);
     setPromotionSquare(null);
-  }, [pendingPromotion, fen, opening, currentNodeId, addMoveToOpening, locked]);
+  }, [pendingPromotion, playMove]);
 
   const cancelPromotion = useCallback(() => {
     setPendingPromotion(null);
@@ -170,134 +156,49 @@ export function BoardProvider({ children, opening }: BoardProviderProps) {
   }, []);
 
   // ── Navigation ────────────────────────────────────────────────────────────
-  const goToMove = useCallback((node: MoveNode | null, path: MoveNode[]) => {
-    if (node) {
-      setFen(node.move.fen || STARTING_FEN);
-      setCurrentPath(path);
-      setCurrentNodeId(node.id);
-    } else {
-      setFen(opening?.rootFen || STARTING_FEN);
-      setCurrentPath([]);
-      setCurrentNodeId(null);
-    }
-    setSelectedSquare(null);
-    setLegalMoves([]);
-  }, [opening]);
-
   const goBack = useCallback(() => {
-    if (currentPath.length === 0) return;
-    const newPath  = currentPath.slice(0, -1);
-    const prevNode = newPath[newPath.length - 1] || null;
-    setCurrentPath(newPath);
-    setCurrentNodeId(prevNode?.id || null);
-    setFen(prevNode?.move.fen || opening?.rootFen || STARTING_FEN);
+    setCurrentMoveIndex(prev => Math.max(0, prev - 1));
     setSelectedSquare(null);
     setLegalMoves([]);
-  }, [currentPath, opening]);
+  }, []);
 
-  const goForward = useCallback((childIndex = 0) => {
-    if (!opening) return;
-    if (currentNodeId === null) {
-      const firstMove = opening.moveTree[0];
-      if (firstMove) {
-        setCurrentPath([firstMove]);
-        setCurrentNodeId(firstMove.id);
-        setFen(firstMove.move.fen || STARTING_FEN);
-      }
-      return;
-    }
-    const currentNode = findNodeById(opening.moveTree, currentNodeId);
-    if (currentNode && currentNode.children.length > 0) {
-      const child = currentNode.children[childIndex] || currentNode.children[0];
-      setCurrentPath(prev => [...prev, child]);
-      setCurrentNodeId(child.id);
-      setFen(child.move.fen || STARTING_FEN);
-    }
-  }, [currentNodeId, opening]);
+  const goForward = useCallback(() => {
+    setCurrentMoveIndex(prev => {
+      const maxIdx = moves.length;
+      return Math.min(maxIdx, prev + 1);
+    });
+    setSelectedSquare(null);
+    setLegalMoves([]);
+  }, [moves.length]);
 
   const goToStart = useCallback(() => {
-    setFen(opening?.rootFen || STARTING_FEN);
-    setCurrentPath([]);
-    setCurrentNodeId(null);
+    setCurrentMoveIndex(0);
     setSelectedSquare(null);
     setLegalMoves([]);
-  }, [opening]);
+  }, []);
 
   const goToEnd = useCallback(() => {
-    if (!opening) return;
-    let nodes = opening.moveTree;
-    const path: MoveNode[] = [];
-    while (nodes.length > 0) {
-      const node = nodes[0];
-      path.push(node);
-      nodes = node.children;
-    }
-    if (path.length > 0) {
-      const last = path[path.length - 1];
-      setCurrentPath(path);
-      setCurrentNodeId(last.id);
-      setFen(last.move.fen || STARTING_FEN);
-    }
-  }, [opening]);
-
-  const deleteCurrentMove = useCallback(() => {
-    if (!opening || !currentNodeId) return;
-    const idToDelete = currentNodeId;
-    const newPath    = currentPath.slice(0, -1);
-    const prevNode   = newPath[newPath.length - 1] || null;
-    setCurrentPath(newPath);
-    setCurrentNodeId(prevNode?.id || null);
-    setFen(prevNode?.move.fen || opening.rootFen || STARTING_FEN);
+    setCurrentMoveIndex(moves.length);
     setSelectedSquare(null);
     setLegalMoves([]);
-    deleteMoveNode(opening.id, idToDelete);
-  }, [opening, currentNodeId, currentPath, deleteMoveNode]);
+  }, [moves.length]);
 
-  const annotateNode = useCallback((nodeId: string, annotation: MoveAnnotation | undefined) => {
-    if (!opening) return;
-    function applyAnnotation(nodes: MoveNode[]): MoveNode[] {
-      return nodes.map(n => {
-        if (n.id === nodeId) return { ...n, move: { ...n.move, annotation } };
-        return { ...n, children: applyAnnotation(n.children) };
-      });
-    }
-    updateOpening(opening.id, { moveTree: applyAnnotation(opening.moveTree) });
-    setCurrentPath(prev => prev.map(n => n.id === nodeId ? { ...n, move: { ...n.move, annotation } } : n));
-  }, [opening, updateOpening]);
-
-  const noteNode = useCallback((nodeId: string, note: string) => {
-    if (!opening) return;
-    function applyNote(nodes: MoveNode[]): MoveNode[] {
-      return nodes.map(n => {
-        if (n.id === nodeId) return { ...n, note };
-        return { ...n, children: applyNote(n.children) };
-      });
-    }
-    updateOpening(opening.id, { moveTree: applyNote(opening.moveTree) });
-    setCurrentPath(prev => prev.map(n => n.id === nodeId ? { ...n, note } : n));
-  }, [opening, updateOpening]);
-
-  const currentNote = useMemo(() => {
-    if (!currentNodeId || currentPath.length === 0) return "";
-    return currentPath[currentPath.length - 1]?.note ?? "";
-  }, [currentPath, currentNodeId]);
-
-  // ── Context values — split so selection changes don't propagate upward ────
+  // ── Context values ────────────────────────────────────────────────────────
   const boardContextValue = useMemo<BoardContextType>(() => ({
-    fen, setFen, flipped, setFlipped,
+    fen, flipped, setFlipped,
     boardTheme, setBoardTheme,
     customLight, customDark, setCustomLight, setCustomDark,
-    currentPath, currentNodeId,
-    goToMove, goBack, goForward, goToStart, goToEnd,
-    annotateNode, noteNode, currentNote,
-    locked, setLocked, deleteCurrentMove,
-    showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
+    moves, currentMoveIndex,
+    goBack, goForward, goToStart, goToEnd,
+    isDirty,
+    squareAnnotations: {},
+    showBoardAnnotations,
+    toggleBoardAnnotations,
   }), [
     fen, flipped, boardTheme, customLight, customDark,
-    currentPath, currentNodeId,
-    goToMove, goBack, goForward, goToStart, goToEnd,
-    annotateNode, noteNode, currentNote,
-    locked, deleteCurrentMove, showBoardAnnotations, toggleBoardAnnotations, squareAnnotations,
+    moves, currentMoveIndex,
+    goBack, goForward, goToStart, goToEnd,
+    isDirty, showBoardAnnotations, toggleBoardAnnotations,
   ]);
 
   const selectionContextValue = useMemo<BoardSelectionContextType>(() => ({

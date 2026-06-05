@@ -14,8 +14,6 @@ export interface ChessMove {
   promotion?: PieceType;
   san: string;
   fen: string;
-  annotation?: MoveAnnotation;
-  comment?: string;
 }
 
 export type MoveAnnotation =
@@ -42,54 +40,25 @@ export const ANNOTATION_SYMBOLS: Record<MoveAnnotation, string> = {
 };
 
 export const ANNOTATION_COLORS: Record<MoveAnnotation, string> = {
-  brilliant:   "#1baca6",   // Chess.com teal
-  best:        "#5c8a3c",   // Chess.com green
-  second_best: "#5c8a3c",   // same green
-  great:       "#3b6ea8",   // Chess.com deep blue
-  good:        "#97af8b",   // Chess.com light green
-  book:        "#c8a45a",   // warm amber
-  inaccuracy:  "#f0c865",   // Chess.com yellow
-  mistake:     "#e6912c",   // Chess.com orange
-  blunder:     "#ca3431",   // Chess.com red
+  brilliant:   "#1baca6",
+  best:        "#5c8a3c",
+  second_best: "#5c8a3c",
+  great:       "#3b6ea8",
+  good:        "#97af8b",
+  book:        "#c8a45a",
+  inaccuracy:  "#f0c865",
+  mistake:     "#e6912c",
+  blunder:     "#ca3431",
 };
 
-export interface MoveNode {
-  id: string;
-  move: ChessMove;
-  children: MoveNode[];
-  parentId: string | null;
-  note?: string;
-}
-
-export interface Opening {
+export interface Line {
   id: string;
   name: string;
+  moves: ChessMove[];
+  startFen: string;
   color: "white" | "black" | "both";
-  description?: string;
-  rootFen: string;
-  moveTree: MoveNode[];
   createdAt: number;
   updatedAt: number;
-  tags?: string[];
-  folderId?: string | null;
-  order?: number;
-}
-
-export interface Folder {
-  id: string;
-  name: string;
-  createdAt: number;
-  order?: number;
-}
-
-export type SortMode = "az" | "za" | "manual";
-
-export interface StockfishEval {
-  score: number; // centipawns from white's perspective
-  depth: number;
-  bestMove: string;
-  pv: string[]; // principal variation
-  mate: number | null; // null if no forced mate
 }
 
 export interface BoardTheme {

@@ -24,34 +24,30 @@ A mobile chess opening repertoire app built with Expo/React Native. Record, revi
 
 ## Chess App Features
 
-- Opening repertoire list with search, add, rename, delete
-- **Folder system**: Create named folders, rename them, expand/collapse
-- **Sort modes**: A→Z, Z→A, and Manual ordering
-- **Manual sort**: Drag ≡ handle to reorder; drag an opening onto a folder to move it in
-- **Move to folder**: Long-press any opening → "Move to Folder" picker
-- **Smooth piece animation**: Chess pieces slide smoothly from square to square (Animated API, 170ms cubic-ease)
-- Interactive chess board with Neo-style pieces (vibrant 2D pieces mimicking chess.com)
+- **Flat line list**: Home screen shows all saved lines (Chessable-style). Tap a line to open board.
+- **Add line**: + button creates a new line (opens board in record mode). Name + playing color on save.
+- **Rename/delete**: Long-press a line → rename or delete from context menu.
+- **Variation from here**: [Variation] button on board creates a new line from current board position.
+- **Move pills**: Horizontal scrollable row of move pills below the board. Tap any pill to navigate to that move.
+- **Auto-save**: Moves played on existing lines are saved immediately; new lines need an explicit Save.
+- **Smooth piece animation**: Chess pieces slide smoothly from square to square (Animated API, 155ms cubic-ease)
+- Interactive chess board with Neo-style pieces (vibrant 2D pieces mimicking chess.com) — **pieces always visible** (cache key bug fixed)
 - Board color themes: Classic, Green, Blue Ocean, Purple, Red, Midnight, Coral + Custom color picker
-- Move recording via click/tap on board
-- PGN import
-- Move tree display (variation branching like ChessBase)
+- Move recording via click/tap on board with legal move highlights
 - Move navigation: prev, next, start, end, flip board
-- Move annotations: !! ★ ✓ !? ? ?? (brilliant, great, good, best, inaccuracy, mistake, blunder)
-- Engine analysis panel (Stockfish-style evaluation with material-based eval)
-- Real-time eval bar
 - Dark/Light mode support
 
 ## Key Files
 
 - `artifacts/chess-repertoire/types/chess.ts` — All chess type definitions
 - `artifacts/chess-repertoire/utils/chess.ts` — Chess logic (FEN parsing, move generation)
-- `artifacts/chess-repertoire/context/RepertoireContext.tsx` — Opening storage state
-- `artifacts/chess-repertoire/context/BoardContext.tsx` — Board game state
+- `artifacts/chess-repertoire/context/RepertoireContext.tsx` — Line[] storage (AsyncStorage, CRUD)
+- `artifacts/chess-repertoire/context/BoardContext.tsx` — Board state (moves[], currentMoveIndex, linear nav)
 - `artifacts/chess-repertoire/components/ChessBoard.tsx` — Interactive board
-- `artifacts/chess-repertoire/components/ChessPiece.tsx` — Piece rendering
-- `artifacts/chess-repertoire/components/MoveTree.tsx` — Move tree display
-- `artifacts/chess-repertoire/app/(tabs)/index.tsx` — Repertoire list screen
-- `artifacts/chess-repertoire/app/board/[id].tsx` — Board/analysis screen
+- `artifacts/chess-repertoire/components/ChessPiece.tsx` — Piece rendering (SVG cache + fallback)
+- `artifacts/chess-repertoire/utils/PieceCache.ts` — Pre-fetches piece SVGs at app start
+- `artifacts/chess-repertoire/app/(tabs)/index.tsx` — Home: flat line list screen
+- `artifacts/chess-repertoire/app/board/[id].tsx` — Board screen with move pills + Variation button
 
 ## Expo Go Compatibility
 
