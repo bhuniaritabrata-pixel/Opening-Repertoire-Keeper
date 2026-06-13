@@ -12,7 +12,7 @@ interface ChessPieceProps {
 }
 
 export default memo(function ChessPiece({ piece, size }: ChessPieceProps) {
-  const key    = (piece.color + piece.type).toLowerCase();
+  const key    = piece.color + piece.type;
   const cached = getCachedPieceSvg(key);
   const uri    = `${BASE_URL}/${piece.color === "w" ? "w" : "b"}${piece.type.toUpperCase()}.svg`;
 

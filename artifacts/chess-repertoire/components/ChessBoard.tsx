@@ -198,7 +198,7 @@ export default function ChessBoard() {
   const {
     fen, flipped,
     boardTheme, customLight, customDark,
-    moves, squareAnnotations,
+    currentPath, squareAnnotations,
   } = useBoard();
 
   const board           = useMemo(() => fenToBoard(fen), [fen]);
@@ -231,13 +231,13 @@ export default function ChessBoard() {
   const prevArrowPreviewSqRef = useRef<string | null>(null);
 
   // Clear arrows when a move is played
-  const prevPathLen = useRef(moves.length);
+  const prevPathLen = useRef(currentPath.length);
   useEffect(() => {
-    if (moves.length !== prevPathLen.current) {
+    if (currentPath.length !== prevPathLen.current) {
       setUserArrows([]);
-      prevPathLen.current = moves.length;
+      prevPathLen.current = currentPath.length;
     }
-  }, [moves.length]);
+  }, [currentPath.length]);
 
   // ── legalCaptures: needed by OverlayLayer to show rings vs dots ──────────
   // Recomputes when legalMovesSet changes (i.e. on piece selection) —

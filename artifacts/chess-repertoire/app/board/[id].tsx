@@ -1,312 +1,126 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
-  Modal,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AnnotationPicker from "@/components/AnnotationPicker";
 import BoardControls from "@/components/BoardControls";
 import BoardThemePanel from "@/components/BoardThemePanel";
 import ChessBoard from "@/components/ChessBoard";
+import MoveTree from "@/components/MoveTree";
+import PgnImport from "@/components/PgnImport";
 import { BoardProvider, useBoard } from "@/context/BoardContext";
 import { useRepertoire } from "@/context/RepertoireContext";
 import { useColors } from "@/hooks/useColors";
-import { ChessMove, Line } from "@/types/chess";
+import { MoveAnnotation } from "@/types/chess";
 
-const COLOR_OPTIONS: Array<{ value: Line["color"]; label: string; icon: string }> = [
-  { value: "white", label: "White", icon: "○" },
-  { value: "black", label: "Black", icon: "●" },
-  { value: "both",  label: "Both",  icon: "◑" },
-];
+function BoardScreen() {
+  const { id }   = useLocalSearchParams<{ id: string }>();
+  const colors   = useColors();
+  const insets   = useSafeAreaInsets();
+  const { openings, importPgn } = useRepertoire();
+  const { currentNodeId, annotateNode, currentPath, deleteCurrentMove, noteNode, currentNote } = useBoard();
 
-// ─── Move pills row ───────────────────────────────────────────────────────────
-function MovePills({ moves, currentMoveIndex }: { moves: ChessMove[]; currentMoveIndex: number }) {
-  const colors = useColors();
-  const { goBack, goForward } = useBoard();
+  const [showTheme,    setShowTheme]    = useState(false);
+  const [showPgn,      setShowPgn]      = useState(false);
+  const [editingNote,  setEditingNote]  = useState(false);
+  const [draftNote,    setDraftNote]    = useState("");
 
-  const pills = useMemo(() => {
-    const result: { label: string; index: number }[] = [];
-    for (let i = 0; i < moves.length; i++) {
-      const moveNum = Math.floor(i / 2) + 1;
-      const isWhite = i % 2 === 0;
-      const prefix  = isWhite ? `${moveNum}. ` : "";
-      result.push({ label: `${prefix}${moves[i].san}`, index: i + 1 });
+  // Memoize the opening lookup so it doesn't scan the array on every render
+  const opening = useMemo(() => openings.find(o => o.id === id) ?? null, [openings, id]);
+
+  const currentAnnotation = useMemo(
+    () => currentPath.length > 0 ? currentPath[currentPath.length - 1]?.move.annotation : undefined,
+    [currentPath],
+  );
+
+  const handleAnnotate = useCallback((annotation: MoveAnnotation | undefined) => {
+    if (currentNodeId) {
+      annotateNode(currentNodeId, annotation);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    return result;
-  }, [moves]);
+  }, [currentNodeId, annotateNode]);
 
-  if (moves.length === 0) {
+  const handleDeleteMove = useCallback(() => {
+    if (!currentNodeId) return;
+    const moveSan = currentPath[currentPath.length - 1]?.move.san || "this move";
+    const doDelete = () => {
+      deleteCurrentMove();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    };
+    if (Platform.OS === "web") {
+      if (confirm(`Delete "${moveSan}" and all moves that follow it?`)) doDelete();
+      return;
+    }
+    Alert.alert(
+      "Delete move?",
+      `Delete "${moveSan}" and all moves that follow it?`,
+      [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: doDelete }],
+    );
+  }, [currentNodeId, currentPath, deleteCurrentMove]);
+
+  const handleNotePress = useCallback(() => {
+    if (!editingNote) {
+      setDraftNote(currentNote);
+      setEditingNote(true);
+    } else {
+      if (currentNodeId) noteNode(currentNodeId, draftNote.trim());
+      setEditingNote(false);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [editingNote, currentNote, currentNodeId, noteNode, draftNote]);
+
+  const handleNoteSave = useCallback(() => {
+    if (currentNodeId) noteNode(currentNodeId, draftNote.trim());
+    setEditingNote(false);
+  }, [currentNodeId, noteNode, draftNote]);
+
+  const handleImportPgn = useCallback((pgn: string): boolean => {
+    if (opening) return importPgn(opening.id, pgn);
+    return false;
+  }, [opening, importPgn]);
+
+  if (!opening) {
     return (
-      <View style={styles.pillsEmpty}>
-        <Text style={[styles.pillsEmptyText, { color: colors.mutedForeground }]}>
-          Make moves on the board to record them
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <Text style={{ color: colors.foreground, textAlign: "center", marginTop: 100 }}>
+          Opening not found
         </Text>
       </View>
     );
   }
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.pillsRow}
-    >
-      {pills.map(({ label, index }) => {
-        const isActive = index === currentMoveIndex;
-        const diff = index - currentMoveIndex;
-        const onPress = () => {
-          if (diff > 0) { for (let i = 0; i < diff; i++) goForward(); }
-          else if (diff < 0) { for (let i = 0; i < -diff; i++) goBack(); }
-        };
-        return (
-          <TouchableOpacity
-            key={index}
-            style={[styles.pill, { backgroundColor: isActive ? colors.primary : colors.muted }]}
-            onPress={onPress}
-          >
-            <Text style={[styles.pillText, { color: isActive ? "#fff" : colors.foreground }]}>
-              {label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
-// ─── Save modal (used both for initial save and variation-before-save) ────────
-interface SaveModalProps {
-  visible: boolean;
-  onClose: () => void;
-  onSave: (name: string, color: Line["color"]) => void;
-  moveCount: number;
-  defaultName?: string;
-}
-function SaveModal({ visible, onClose, onSave, moveCount, defaultName = "" }: SaveModalProps) {
-  const colors = useColors();
-  const [name,  setName]  = useState(defaultName);
-  const [color, setColor] = useState<Line["color"]>("white");
-
-  const handleSave = () => {
-    if (!name.trim()) return;
-    onSave(name.trim(), color);
-    setName("");
-    setColor("white");
-  };
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-        <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={onClose}>
-            <Feather name="x" size={22} color={colors.mutedForeground} />
-          </TouchableOpacity>
-          <Text style={[styles.modalTitle, { color: colors.foreground }]}>Save Line</Text>
-          <TouchableOpacity onPress={handleSave}>
-            <Text style={[styles.modalSave, { color: name.trim() ? colors.primary : colors.mutedForeground }]}>
-              Save
-            </Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.modalBody}>
-          <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>LINE NAME</Text>
-          <TextInput
-            style={[styles.nameInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.card }]}
-            placeholder="e.g. Ruy Lopez Main Line"
-            placeholderTextColor={colors.mutedForeground}
-            value={name}
-            onChangeText={setName}
-            autoFocus
-            onSubmitEditing={handleSave}
-            returnKeyType="done"
-          />
-          <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginTop: 20 }]}>PLAYING AS</Text>
-          <View style={styles.colorRow}>
-            {COLOR_OPTIONS.map(opt => (
-              <TouchableOpacity
-                key={opt.value}
-                style={[
-                  styles.colorOption,
-                  { borderColor: color === opt.value ? colors.primary : colors.border, backgroundColor: colors.card },
-                  color === opt.value && { borderWidth: 2 },
-                ]}
-                onPress={() => setColor(opt.value)}
-              >
-                <Text style={styles.colorOptionIcon}>{opt.icon}</Text>
-                <Text style={[styles.colorOptionLabel, { color: color === opt.value ? colors.primary : colors.foreground }]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={[styles.moveCountBox, { backgroundColor: colors.muted }]}>
-            <Feather name="list" size={14} color={colors.mutedForeground} />
-            <Text style={[styles.moveCountText, { color: colors.mutedForeground }]}>
-              {moveCount} move{moveCount !== 1 ? "s" : ""} will be saved
-            </Text>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-// ─── Inner board screen ───────────────────────────────────────────────────────
-function BoardScreen({ line, isNew, startFen }: { line: Line | null; isNew: boolean; startFen: string }) {
-  const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const { addLine } = useRepertoire();
-  const { moves, currentMoveIndex, fen } = useBoard();
-
-  const [showTheme, setShowTheme] = useState(false);
-  const [showSave,  setShowSave]  = useState(false);
-
-  // Pending variation: when user clicks Variation on an unsaved new line,
-  // we need to save first, then create the variation from this FEN.
-  const pendingVariationFenRef = useRef<string | null>(null);
-
-  const title = line?.name ?? "New Line";
-
-  // ── Save: persist the current moves as a new Line ──────────────────────────
-  const handleSaveConfirm = useCallback((name: string, color: Line["color"]) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const savedId = addLine(name, color, startFen, moves);
-    setShowSave(false);
-
-    const pendingFen = pendingVariationFenRef.current;
-    pendingVariationFenRef.current = null;
-
-    if (pendingFen) {
-      // After saving, navigate to the saved line, then push the variation
-      router.replace(`/board/${savedId}`);
-      const varId = addLine(`${name} – variation`, color, pendingFen);
-      router.push(`/board/${varId}`);
-    } else {
-      // Normal save: replace this new-line route with the persisted one
-      router.replace(`/board/${savedId}`);
-    }
-  }, [addLine, moves, startFen]);
-
-  // ── Back: prompt to save when there are unsaved moves on a new line ────────
-  const handleBack = useCallback(() => {
-    if (isNew && moves.length > 0) {
-      const doDiscard = () => router.back();
-      if (Platform.OS === "web") {
-        const choice = window.confirm(
-          `You have ${moves.length} unsaved move${moves.length !== 1 ? "s" : ""}.\n\nOK = Save before leaving  ·  Cancel = Discard`
-        );
-        if (choice) { setShowSave(true); }
-        else { doDiscard(); }
-        return;
-      }
-      Alert.alert(
-        "Unsaved moves",
-        `You have ${moves.length} unsaved move${moves.length !== 1 ? "s" : ""}. Save this line before leaving?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Discard", style: "destructive", onPress: doDiscard },
-          { text: "Save", onPress: () => setShowSave(true) },
-        ],
-      );
-    } else {
-      router.back();
-    }
-  }, [isNew, moves.length]);
-
-  // ── Variation: save current line first (if new + unsaved), then branch ─────
-  const handleVariation = useCallback(() => {
-    const captureFen = fen;
-
-    if (isNew && moves.length > 0) {
-      // New unsaved line: prompt save-first or discard-and-branch
-      const doBranch = () => {
-        const varId = addLine("Variation", "white", captureFen);
-        router.push(`/board/${varId}`);
-      };
-
-      if (Platform.OS === "web") {
-        const choice = window.confirm(
-          "Save this line before creating a variation? OK = Save first  ·  Cancel = Branch without saving"
-        );
-        if (choice) {
-          pendingVariationFenRef.current = captureFen;
-          setShowSave(true);
-        } else {
-          doBranch();
-        }
-        return;
-      }
-
-      Alert.alert(
-        "Create variation",
-        "Save this line first, then branch from the current position?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Branch without saving", style: "destructive", onPress: doBranch },
-          {
-            text: "Save first",
-            onPress: () => {
-              pendingVariationFenRef.current = captureFen;
-              setShowSave(true);
-            },
-          },
-        ],
-      );
-    } else {
-      // Existing line (auto-saved): just create the variation
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const varName = line ? `${line.name} – variation` : "Variation";
-      const varId = addLine(varName, line?.color ?? "white", captureFen);
-      router.push(`/board/${varId}`);
-    }
-  }, [fen, isNew, moves.length, line, addLine]);
-
-  return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.header, paddingTop: Platform.OS !== "web" ? insets.top : 67 }]}>
-        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Feather name="arrow-left" size={22} color={colors.headerForeground} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={[styles.headerTitle, { color: colors.headerForeground }]} numberOfLines={1}>
-            {title}
+            {opening.name}
           </Text>
-          {!isNew && line && (
-            <Text style={[styles.headerSub, { color: "rgba(255,255,255,0.5)" }]}>
-              {line.moves.length} move{line.moves.length !== 1 ? "s" : ""}
-            </Text>
-          )}
-          {isNew && (
-            <Text style={[styles.headerSub, { color: "rgba(255,255,255,0.5)" }]}>
-              {moves.length > 0 ? `${moves.length} move${moves.length !== 1 ? "s" : ""} · unsaved` : "recording…"}
-            </Text>
-          )}
+          <Text style={[styles.headerSub, { color: "rgba(255,255,255,0.5)" }]}>
+            {opening.color.charAt(0).toUpperCase() + opening.color.slice(1)}
+          </Text>
         </View>
         <View style={styles.headerActions}>
-          {isNew && (
-            <TouchableOpacity
-              style={[styles.saveBtn, { backgroundColor: moves.length > 0 ? colors.primary : colors.muted }]}
-              onPress={() => setShowSave(true)}
-              disabled={moves.length === 0}
-            >
-              <Feather name="save" size={14} color={moves.length > 0 ? "#fff" : colors.mutedForeground} />
-              <Text style={[styles.saveBtnText, { color: moves.length > 0 ? "#fff" : colors.mutedForeground }]}>
-                Save
-              </Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setShowTheme(true)}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowPgn(true)}>
+            <Feather name="download" size={18} color={colors.headerForeground} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowTheme(true)}>
             <Feather name="sliders" size={18} color={colors.headerForeground} />
           </TouchableOpacity>
         </View>
@@ -314,140 +128,128 @@ function BoardScreen({ line, isNew, startFen }: { line: Line | null; isNew: bool
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 20 }]}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
       >
         <ChessBoard />
         <BoardControls />
 
-        {/* Move pills */}
         <View style={[styles.movesPanel, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <MovePills moves={moves} currentMoveIndex={currentMoveIndex} />
-        </View>
+          <MoveTree opening={opening} />
+          {currentNodeId && (
+            <View style={[styles.annotationContainer, { borderTopColor: colors.border }]}>
+              <AnnotationPicker currentAnnotation={currentAnnotation} onSelect={handleAnnotate} />
 
-        {/* Variation button */}
-        <TouchableOpacity
-          style={[styles.variationBtn, { borderColor: colors.primary, backgroundColor: colors.primary + "14" }]}
-          onPress={handleVariation}
-        >
-          <Feather name="git-branch" size={16} color={colors.primary} />
-          <Text style={[styles.variationBtnText, { color: colors.primary }]}>Variation from here</Text>
-        </TouchableOpacity>
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.deleteMoveBtn, { borderColor: colors.destructive }]}
+                  onPress={handleDeleteMove}
+                >
+                  <Feather name="trash-2" size={14} color={colors.destructive} />
+                  <Text style={[styles.deleteMoveText, { color: colors.destructive }]}>Delete this move</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.noteBtn, { borderColor: "#1976d2", backgroundColor: editingNote ? "#1976d2" : "transparent" }]}
+                  onPress={handleNotePress}
+                >
+                  <Feather name={editingNote ? "check" : "edit-2"} size={14} color={editingNote ? "#fff" : "#1976d2"} />
+                  <Text style={[styles.noteBtnText, { color: editingNote ? "#fff" : "#1976d2" }]}>
+                    {editingNote ? "Save note" : "Add note"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {(editingNote || currentNote.length > 0) && (
+                <View style={[styles.noteBox, { borderColor: "#1976d255", backgroundColor: "#1976d20d" }]}>
+                  <Text style={[styles.noteLabel, { color: "#1976d2" }]}>note:</Text>
+                  {editingNote ? (
+                    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+                      <TextInput
+                        style={[styles.noteInput, { color: colors.foreground }]}
+                        value={draftNote}
+                        onChangeText={setDraftNote}
+                        multiline
+                        autoFocus
+                        placeholder="Write your note here…"
+                        placeholderTextColor={colors.mutedForeground}
+                        onSubmitEditing={handleNoteSave}
+                      />
+                    </KeyboardAvoidingView>
+                  ) : (
+                    <ScrollView style={styles.noteScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      <Text style={[styles.noteText, { color: colors.foreground }]}>{currentNote}</Text>
+                    </ScrollView>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       <BoardThemePanel visible={showTheme} onClose={() => setShowTheme(false)} />
-
-      <SaveModal
-        visible={showSave}
-        onClose={() => {
-          setShowSave(false);
-          pendingVariationFenRef.current = null;
-        }}
-        onSave={handleSaveConfirm}
-        moveCount={moves.length}
-      />
+      <PgnImport visible={showPgn} onClose={() => setShowPgn(false)} onImport={handleImportPgn} />
     </View>
   );
 }
 
-// ─── Wrapper ──────────────────────────────────────────────────────────────────
 export default function BoardScreenWrapper() {
-  const { id, startFen: startFenParam } = useLocalSearchParams<{ id: string; startFen?: string }>();
-  const { lines, updateLineMoves } = useRepertoire();
-
-  const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-  const isNew    = id === "new";
-  const startFen = startFenParam ?? STARTING_FEN;
-  const line     = useMemo(() => (!isNew ? lines.find(l => l.id === id) ?? null : null), [lines, id, isNew]);
-
-  const handleMovePlayed = useCallback((newMoves: ChessMove[]) => {
-    if (!isNew && line) {
-      updateLineMoves(line.id, newMoves);
-    }
-  }, [isNew, line, updateLineMoves]);
-
+  const { id }      = useLocalSearchParams<{ id: string }>();
+  const { openings } = useRepertoire();
+  const opening      = useMemo(() => openings.find(o => o.id === id) ?? null, [openings, id]);
   return (
-    <BoardProvider
-      line={line}
-      startFen={isNew ? startFen : undefined}
-      onMovePlayed={handleMovePlayed}
-    >
-      <BoardScreen
-        line={line}
-        isNew={isNew}
-        startFen={isNew ? startFen : (line?.startFen ?? STARTING_FEN)}
-      />
+    <BoardProvider opening={opening}>
+      <BoardScreen />
     </BoardProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  container:    { flex: 1 },
+  container:  { flex: 1 },
   header: {
     flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 12, paddingBottom: 12, gap: 8,
+    paddingHorizontal: 16, paddingBottom: 14, gap: 10,
   },
-  backBtn:       { width: 40, height: 40, justifyContent: "center", alignItems: "center", borderRadius: 10 },
-  headerCenter:  { flex: 1, alignItems: "center" },
-  headerTitle:   { fontSize: 17, fontWeight: "700", fontFamily: "Inter_700Bold", textAlign: "center" },
-  headerSub:     { fontSize: 11, fontFamily: "Inter_400Regular" },
-  headerActions: { flexDirection: "row", gap: 4, alignItems: "center" },
-  saveBtn: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8,
-  },
-  saveBtnText: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  headerIconBtn: { width: 36, height: 36, justifyContent: "center", alignItems: "center", borderRadius: 8 },
-
-  scroll:        { flex: 1 },
-  scrollContent: { padding: 12, alignItems: "center" },
-
+  backBtn:      { width: 40, height: 40, justifyContent: "center", alignItems: "center", borderRadius: 10 },
+  headerCenter: { flex: 1, alignItems: "center" },
+  headerTitle:  { fontSize: 17, fontWeight: "700", fontFamily: "Inter_700Bold", textAlign: "center" },
+  headerSub:    { fontSize: 12, fontFamily: "Inter_400Regular" },
+  headerActions:{ flexDirection: "row", gap: 4 },
+  headerBtn:    { width: 36, height: 36, justifyContent: "center", alignItems: "center", borderRadius: 8 },
+  scroll:       { flex: 1 },
+  scrollContent:{ padding: 12, alignItems: "center" },
   movesPanel: {
     borderRadius: 12, borderWidth: 1, marginTop: 8,
-    alignSelf: "stretch", overflow: "hidden",
+    alignSelf: "stretch", minHeight: 120, overflow: "hidden",
   },
-  pillsRow:   { paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", gap: 6, alignItems: "center" },
-  pillsEmpty: { padding: 16, alignItems: "center" },
-  pillsEmptyText: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  pill: {
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: 20, alignItems: "center",
+  annotationContainer: { borderTopWidth: 1, padding: 12, gap: 10 },
+  actionRow: {
+    flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap",
   },
-  pillText: { fontSize: 13, fontWeight: "500", fontFamily: "Inter_500Medium" },
-
-  variationBtn: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    borderWidth: 1.5, borderRadius: 12, borderStyle: "dashed",
-    paddingVertical: 12, paddingHorizontal: 16,
-    marginTop: 10, alignSelf: "stretch", justifyContent: "center",
+  deleteMoveBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 8, borderWidth: 1, alignSelf: "flex-start",
   },
-  variationBtnText: { fontSize: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
-
-  // Save Modal
-  modalContainer: { flex: 1 },
-  modalHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1,
+  deleteMoveText: { fontSize: 12, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  noteBtn: {
+    flexDirection: "row", alignItems: "center",
+    gap: 6, paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 8, borderWidth: 1, alignSelf: "flex-start",
   },
-  modalTitle:  { fontSize: 17, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  modalSave:   { fontSize: 16, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
-  modalBody:   { padding: 20, gap: 8 },
-  fieldLabel:  { fontSize: 11, fontWeight: "700", letterSpacing: 0.8, marginBottom: 4, fontFamily: "Inter_600SemiBold" },
-  nameInput: {
-    borderWidth: 1, borderRadius: 12,
-    paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 16, fontFamily: "Inter_400Regular",
+  noteBtnText: { fontSize: 12, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  noteBox: {
+    marginTop: 8, borderRadius: 8, borderWidth: 1,
+    padding: 10, paddingTop: 22,
+    minHeight: 60, maxHeight: 140, position: "relative",
   },
-  colorRow: { flexDirection: "row", gap: 10 },
-  colorOption: {
-    flex: 1, borderWidth: 1, borderRadius: 12,
-    paddingVertical: 14, alignItems: "center", gap: 6,
+  noteLabel: {
+    position: "absolute", top: 6, left: 10,
+    fontSize: 11, fontWeight: "700", fontStyle: "italic", letterSpacing: 0.2,
   },
-  colorOptionIcon:  { fontSize: 22 },
-  colorOptionLabel: { fontSize: 13, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
-  moveCountBox: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    borderRadius: 10, padding: 10, marginTop: 12,
-  },
-  moveCountText: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  noteScroll: { maxHeight: 110 },
+  noteText:   { fontSize: 13, lineHeight: 20, fontFamily: "Inter_400Regular" },
+  noteInput:  { fontSize: 13, lineHeight: 20, fontFamily: "Inter_400Regular", minHeight: 60, textAlignVertical: "top" },
 });
