@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, Link } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
@@ -117,6 +117,13 @@ function BoardScreen() {
           </Text>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[styles.headerBtn, styles.drillBtn]}
+            onPress={() => router.push(`/drill/${id}` as any)}
+          >
+            <Feather name="zap" size={15} color="#0f1117" />
+            <Text style={styles.drillBtnText}>Drill</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerBtn} onPress={() => setShowPgn(true)}>
             <Feather name="download" size={18} color={colors.headerForeground} />
           </TouchableOpacity>
@@ -216,8 +223,14 @@ const styles = StyleSheet.create({
   headerCenter: { flex: 1, alignItems: "center" },
   headerTitle:  { fontSize: 17, fontWeight: "700", fontFamily: "Inter_700Bold", textAlign: "center" },
   headerSub:    { fontSize: 12, fontFamily: "Inter_400Regular" },
-  headerActions:{ flexDirection: "row", gap: 4 },
+  headerActions:{ flexDirection: "row", gap: 4, alignItems: "center" },
   headerBtn:    { width: 36, height: 36, justifyContent: "center", alignItems: "center", borderRadius: 8 },
+  drillBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    width: "auto", paddingHorizontal: 10,
+    backgroundColor: "#f59e0b", borderRadius: 8,
+  },
+  drillBtnText: { color: "#0f1117", fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
   scroll:       { flex: 1 },
   scrollContent:{ padding: 12, alignItems: "center" },
   movesPanel: {

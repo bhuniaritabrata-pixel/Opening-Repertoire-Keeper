@@ -58,6 +58,10 @@ function AppContent() {
           name="board/[id]"
           options={{ headerShown: false, animation: "slide_from_right" }}
         />
+        <Stack.Screen
+          name="drill/[id]"
+          options={{ headerShown: false, animation: "slide_from_right" }}
+        />
       </Stack>
 
       {showAnimatedSplash && (
