@@ -1,0 +1,23 @@
+Act as an expert React/Mobile App Developer and Chess Programmer. We are adding a "Drill Mode" feature to our existing chess repertoire app. 
+
+### Current App Context:
+- The app allows users to build opening trees with variations (similar to Lichess studies).
+- CURRENT ISSUE TO FIX FIRST: Move mechanics and arrow navigation have a ~500ms lag. Ensure all board state updates are optimistic and instantaneous. Database saves or heavy tree calculations must happen asynchronously without blocking the UI thread.
+
+### New Feature Requirements: Drill Mode
+1. **UI Placement:** Add a prominent "Drill" icon/button inside every individual chess opening window (e.g., next to the title or navigation tools).
+2. **Drill Logic:**
+   - When clicked, it starts a drill for the current opening variation from the very first move (or a selected starting position).
+   - **User Role:** The user plays the moves belonging to "My Repertoire" (White or Black).
+   - **Computer Role:** The app automatically plays the opponent's moves based on the saved variations in the opening tree. If there are multiple opponent variations, the app should pick one at random.
+3. **Feedback Loops:**
+   - If the user plays the correct move according to the repertoire, play the move instantly, display a green flash/checkmark, and trigger the opponent's next move.
+   - If the user plays an incorrect move (not in the repertoire), block the move, show a red visual cue/error, and reset the piece to its original square. Give them an option to "Retry" or "Show Solution".
+4. **Completion:** When the end of a variation line is reached, display a "Line Cleared!" success screen with stats (e.g., Accuracy: X%, Mistakes: Y) and an option to "Drill Again" or "Exit".
+
+### Technical Constraints:
+- Use highly optimized state management for chess moves (e.g., chess.js and chessboardjsx/react-chessboard). 
+- Do not trigger full-page re-renders on move execution or arrow navigation.
+- Keep the code modular, cleanly separating the Drill State (current move index, mistakes count) from the core Opening Tree state.
+
+Please write the complete, bug-free implementation for this Drill feature and the performance fix.
