@@ -1,0 +1,26 @@
+Act as an expert React Native Mobile Developer and Chess Programmer. We are adding a highly optimized "Drill Mode" feature to our existing chess repertoire app. 
+
+### Current App Context & Performance Fix:
+- The app uses React Native. It builds opening trees with variations (similar to Lichess studies).
+- CRITICAL PERFORMANCE ISSUE: Move mechanics and arrow navigation currently have a ~500ms lag. 
+- Fix this by decoupling the UI rendering from heavy tree calculations. Ensure the chessboard component updates its local state instantly (optimistic updates). Do not trigger full-tree re-renders, file writes, or database calls synchronously on the main JS thread during a move or navigation action. Use InteractionManager or asynchronous tasks for background syncing.
+
+### New Feature: Drill Mode
+1. **UI Component:** Add a touchable "Drill" icon/button inside every chess opening window (e.g., in the header or alongside the navigation controls).
+2. **Drill Logic & State:**
+   - When pressed, initialize a clean, lightweight local state tracking the current drill path.
+   - The app must detect the player's side based on the repertoire (e.g., if the saved lines are for White, the user plays White; if Black, the computer automatically plays White's first move).
+   - If there are multiple opponent variations at any point in the tree, the code must randomly select one branch to test the user.
+3. **Gameplay Loop & Feedback:**
+   - **User Move:** When the user makes a move, validate it instantly against the active repertoire branch in local memory.
+   - **Correct Move:** Lock the move onto the board instantly, trigger a fast visual success cue (like a green highlight on the square), and automatically trigger the computer's next move after a natural 200ms delay.
+   - **Incorrect Move:** Instantly reject the move, snap the piece back to its origin square (using optimized animation/re-rendering), increment a mistake counter, and show a red visual cue. Provide a "Show Hint" action.
+   - **Forks:** If the user plays any valid move from a branching path of their own repertoire, accept it and lock the drill into that specific branch.
+4. **Completion:** When the end of a variation line is reached, display a clean React Native Modal saying "Line Cleared!" showing stats (Accuracy %, Mistakes count) with buttons to "Drill Again" or "Exit".
+
+### Technical Implementation Rules:**
+- Separate the Drill logic cleanly into a custom hook or dedicated state management file.
+- Use efficient library integration (e.g., chess.js for logic, combined with a highly responsive React Native chessboard UI component).
+- Keep animations light and do not block the JS thread.
+
+Please provide the modular, bug-free implementation for the performance fix and the Drill Mode feature.

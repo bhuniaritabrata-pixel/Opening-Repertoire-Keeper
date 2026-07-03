@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { InteractionManager } from "react-native";
 import { Folder, MoveNode, Opening, SortMode, STARTING_FEN, generateId } from "@/types/chess";
 import { parsePgnToSans, sanToMove, applyMove } from "@/utils/chess";
 
@@ -58,14 +59,22 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     });
   }, []);
 
+  // Board updates (setOpenings) happen synchronously so the UI paints
+  // instantly. The expensive part — JSON.stringify of the whole tree plus
+  // the AsyncStorage write — is pushed off the current frame with
+  // InteractionManager so it never blocks a move or navigation animation.
   const saveOpenings = useCallback((newOpenings: Opening[]) => {
     setOpenings(newOpenings);
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newOpenings));
+    InteractionManager.runAfterInteractions(() => {
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newOpenings));
+    });
   }, []);
 
   const saveFolders = useCallback((newFolders: Folder[]) => {
     setFolders(newFolders);
-    AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(newFolders));
+    InteractionManager.runAfterInteractions(() => {
+      AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(newFolders));
+    });
   }, []);
 
   const setSortMode = useCallback((mode: SortMode) => {

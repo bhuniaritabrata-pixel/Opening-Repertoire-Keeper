@@ -8,6 +8,7 @@ import {
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef, useState } from "react";
+import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -27,10 +28,16 @@ SplashScreen.preventAutoHideAsync();
 // Module-level flag: animated splash plays once per process lifetime
 let splashHasPlayed = false;
 
+// The animated splash relies on Animated with useNativeDriver, which has no
+// native driver on web and falls back to a slow JS-thread animation. That
+// makes the splash appear to hang for many seconds in the web preview, so we
+// skip it entirely on web and go straight to the app.
+const SKIP_ANIMATED_SPLASH = Platform.OS === "web";
+
 function AppContent() {
   const { splashType } = useTheme();
   const [showAnimatedSplash, setShowAnimatedSplash] = useState(
-    splashType === "animated" && !splashHasPlayed
+    !SKIP_ANIMATED_SPLASH && splashType === "animated" && !splashHasPlayed
   );
 
   // Keep `showAnimatedSplash` in sync if splashType loads async from storage.
@@ -39,7 +46,7 @@ function AppContent() {
   useEffect(() => {
     if (!didInitRef.current) {
       didInitRef.current = true;
-      if (splashType === "animated" && !splashHasPlayed) {
+      if (!SKIP_ANIMATED_SPLASH && splashType === "animated" && !splashHasPlayed) {
         setShowAnimatedSplash(true);
       }
     }
