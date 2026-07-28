@@ -256,13 +256,16 @@ export default function RepertoireListScreen() {
       onPanResponderRelease: () => {
         isScrollEnabled.current = true;
         if (dragOverFolderId !== null) {
-          // Move into folder
+          // Drop onto a folder → move into it
           moveOpeningToFolder(item.id, dragOverFolderId);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else if (item.folderId !== null && item.folderId !== undefined) {
+          // Was inside a folder, dropped outside any folder → move to root
+          moveOpeningToFolder(item.id, null);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } else {
-          // Reorder based on final Y position
+          // Root opening dropped outside any folder → reorder among root openings
           const absY = dragCurrentAbsY.current + scrollOffset.current;
-          const allItems = [...rootOpenings, ...folders.flatMap(f => getFolderOpenings(f.id))];
           let bestIdx = rootOpenings.findIndex(o => o.id === item.id);
           let bestDist = Infinity;
           rootOpenings.forEach((o, idx) => {
@@ -485,7 +488,7 @@ export default function RepertoireListScreen() {
         </View>
 
         {sortMode === "manual" && (
-          <Text style={styles.manualHint}>Long-press drag ≡ to reorder · Drag opening onto a folder to move it</Text>
+          <Text style={styles.manualHint}>Drag ≡ to reorder · Drop onto folder to move in · Drop outside folder to move to root</Text>
         )}
       </View>
 
