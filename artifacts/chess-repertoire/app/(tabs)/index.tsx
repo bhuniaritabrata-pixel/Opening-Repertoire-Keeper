@@ -45,7 +45,7 @@ export default function RepertoireListScreen() {
   const insets = useSafeAreaInsets();
   const {
     openings, folders, sortMode, setSortMode,
-    addOpening, deleteOpening, renameOpening,
+    addOpening, deleteOpening, renameOpening, updateOpening,
     moveOpeningToFolder, reorderOpenings,
     addFolder, deleteFolder, renameFolder,
     reorderFolders,
@@ -59,6 +59,8 @@ export default function RepertoireListScreen() {
   const [renameModal, setRenameModal] = useState<{ kind: "opening" | "folder"; id: string; current: string } | null>(null);
   const [moveToFolderModal, setMoveToFolderModal] = useState<string | null>(null);
   const [showAddSubMenu, setShowAddSubMenu] = useState(false);
+  const [colorChangeModal, setColorChangeModal] = useState<{ id: string; current: Opening["color"] } | null>(null);
+  const [pendingColor, setPendingColor] = useState<Opening["color"]>("white");
 
   // Add form state
   const [newName, setNewName] = useState("");
@@ -75,6 +77,9 @@ export default function RepertoireListScreen() {
   const dragCurrentAbsY = useRef(0);
   const itemRefs = useRef<Map<string, View | null>>(new Map());
   const itemPositions = useRef<Map<string, { y: number; height: number }>>(new Map());
+  // Absolute (pageY) folder positions captured at drag-start — fixes offset mismatch
+  const folderAbsPositions = useRef<Map<string, { y: number; height: number }>>(new Map());
+  const folderRefs = useRef<Map<string, View | null>>(new Map());
   const listRef = useRef<ScrollView>(null);
   const scrollOffset = useRef(0);
   const isScrollEnabled = useRef(true);
@@ -170,6 +175,20 @@ export default function RepertoireListScreen() {
     setContextMenu(null);
   };
 
+  const handleChangeColor = () => {
+    if (!contextMenu || contextMenu.kind !== "opening") return;
+    const opening = openings.find(o => o.id === contextMenu.id);
+    setPendingColor(opening?.color ?? "white");
+    setColorChangeModal({ id: contextMenu.id, current: opening?.color ?? "white" });
+    setContextMenu(null);
+  };
+
+  const commitColorChange = () => {
+    if (!colorChangeModal) return;
+    updateOpening(colorChangeModal.id, { color: pendingColor });
+    setColorChangeModal(null);
+  };
+
   const handleDeleteFromMenu = () => {
     if (!contextMenu) return;
     const target = contextMenu;
@@ -211,15 +230,24 @@ export default function RepertoireListScreen() {
         dragY.setValue(0);
         setDraggingId(item.id);
         isScrollEnabled.current = false;
+        // Snapshot absolute pageY of every folder row so move-checks are accurate
+        folderAbsPositions.current.clear();
+        for (const [folderId, ref] of folderRefs.current.entries()) {
+          if (ref) {
+            ref.measure((_x, _y, _w, height, _px, pageY) => {
+              folderAbsPositions.current.set(folderId, { y: pageY, height });
+            });
+          }
+        }
       },
       onPanResponderMove: (e, gs) => {
         dragCurrentAbsY.current = e.nativeEvent.pageY;
         dragY.setValue(gs.dy);
-        // Check if hovering over a folder
+        // Use absolute positions captured at drag-start — no scroll/header offset math needed
         let foundFolder: string | null = null;
-        for (const [key, pos] of itemPositions.current.entries()) {
-          if (key.startsWith("folder-") && e.nativeEvent.pageY > pos.y && e.nativeEvent.pageY < pos.y + pos.height) {
-            foundFolder = key.replace("folder-", "");
+        for (const [folderId, pos] of folderAbsPositions.current.entries()) {
+          if (e.nativeEvent.pageY > pos.y && e.nativeEvent.pageY < pos.y + pos.height) {
+            foundFolder = folderId;
             break;
           }
         }
@@ -338,6 +366,7 @@ export default function RepertoireListScreen() {
     return (
       <View
         key={folder.id}
+        ref={(r) => { folderRefs.current.set(folder.id, r); }}
         onLayout={(e) => {
           itemPositions.current.set(`folder-${folder.id}`, {
             y: e.nativeEvent.layout.y,
@@ -601,10 +630,16 @@ export default function RepertoireListScreen() {
                   <Text style={[styles.contextLabel, { color: colors.foreground }]}>Rename</Text>
                 </TouchableOpacity>
                 {contextMenu?.kind === "opening" && (
-                  <TouchableOpacity style={styles.contextItem} onPress={handleMoveToFolder}>
-                    <Feather name="folder" size={18} color={colors.foreground} />
-                    <Text style={[styles.contextLabel, { color: colors.foreground }]}>Move to Folder</Text>
-                  </TouchableOpacity>
+                  <>
+                    <TouchableOpacity style={styles.contextItem} onPress={handleChangeColor}>
+                      <Feather name="circle" size={18} color={colors.foreground} />
+                      <Text style={[styles.contextLabel, { color: colors.foreground }]}>Change Color</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.contextItem} onPress={handleMoveToFolder}>
+                      <Feather name="folder" size={18} color={colors.foreground} />
+                      <Text style={[styles.contextLabel, { color: colors.foreground }]}>Move to Folder</Text>
+                    </TouchableOpacity>
+                  </>
                 )}
                 <View style={[styles.contextDivider, { backgroundColor: colors.border }]} />
                 <TouchableOpacity style={styles.contextItem} onPress={handleDeleteFromMenu}>
@@ -641,6 +676,45 @@ export default function RepertoireListScreen() {
                     style={[styles.renameSaveBtn, { backgroundColor: colors.primary, opacity: renameText.trim() ? 1 : 0.5 }]}
                     onPress={commitRename}
                   >
+                    <Text style={[styles.renameBtnText, { color: "#fff" }]}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Change Color Modal */}
+      <Modal visible={colorChangeModal !== null} animationType="fade" transparent onRequestClose={() => setColorChangeModal(null)}>
+        <TouchableWithoutFeedback onPress={() => setColorChangeModal(null)}>
+          <View style={styles.contextOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.renameSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.contextTitle, { color: colors.foreground }]}>Change Color</Text>
+                <View style={[styles.colorRow, { marginTop: 8, marginBottom: 20 }]}>
+                  {COLOR_OPTIONS.map(opt => (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={[
+                        styles.colorOption,
+                        { borderColor: pendingColor === opt.value ? colors.primary : colors.border },
+                        pendingColor === opt.value && { backgroundColor: colors.primary + "22" },
+                      ]}
+                      onPress={() => setPendingColor(opt.value)}
+                    >
+                      <Text style={{ fontSize: 20 }}>{opt.icon}</Text>
+                      <Text style={[styles.colorOptionLabel, { color: pendingColor === opt.value ? colors.primary : colors.mutedForeground }]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={styles.renameButtons}>
+                  <TouchableOpacity style={[styles.renameCancelBtn, { borderColor: colors.border }]} onPress={() => setColorChangeModal(null)}>
+                    <Text style={[styles.renameBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.renameSaveBtn, { backgroundColor: colors.primary }]} onPress={commitColorChange}>
                     <Text style={[styles.renameBtnText, { color: "#fff" }]}>Save</Text>
                   </TouchableOpacity>
                 </View>
