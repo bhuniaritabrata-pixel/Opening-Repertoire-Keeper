@@ -61,6 +61,8 @@ export default function RepertoireListScreen() {
   const [showAddSubMenu, setShowAddSubMenu] = useState(false);
   const [colorChangeModal, setColorChangeModal] = useState<{ id: string; current: Opening["color"] } | null>(null);
   const [pendingColor, setPendingColor] = useState<Opening["color"]>("white");
+  const [descModal, setDescModal] = useState<{ id: string; current: string } | null>(null);
+  const [descText, setDescText] = useState("");
 
   // Add form state
   const [newName, setNewName] = useState("");
@@ -70,6 +72,7 @@ export default function RepertoireListScreen() {
 
   // Drag state
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const dragY = useRef(new Animated.Value(0)).current;
   const dragItemHeight = useRef(0);
@@ -189,6 +192,21 @@ export default function RepertoireListScreen() {
     setColorChangeModal(null);
   };
 
+  const handleEditDescription = () => {
+    if (!contextMenu || contextMenu.kind !== "opening") return;
+    const opening = openings.find(o => o.id === contextMenu.id);
+    setDescText(opening?.description ?? "");
+    setDescModal({ id: contextMenu.id, current: opening?.description ?? "" });
+    setContextMenu(null);
+  };
+
+  const commitDescEdit = () => {
+    if (!descModal) return;
+    updateOpening(descModal.id, { description: descText.trim() || undefined });
+    setDescModal(null);
+    setDescText("");
+  };
+
   const handleDeleteFromMenu = () => {
     if (!contextMenu) return;
     const target = contextMenu;
@@ -218,7 +236,66 @@ export default function RepertoireListScreen() {
     }
   };
 
-  // ── Drag-drop ─────────────────────────────────────────────────
+  // ── Folder drag-drop reorder ─────────────────────────────────
+  const buildFolderPanResponder = (folder: Folder) => {
+    if (sortMode !== "manual") return null;
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 4,
+      onPanResponderGrant: (e) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        dragStartY.current = e.nativeEvent.pageY;
+        dragY.setValue(0);
+        setDraggingFolderId(folder.id);
+        isScrollEnabled.current = false;
+        // Snapshot absolute pageY of all folders for accurate hit-testing
+        folderAbsPositions.current.clear();
+        for (const [fid, ref] of folderRefs.current.entries()) {
+          if (ref) {
+            ref.measure((_x, _y, _w, height, _px, pageY) => {
+              folderAbsPositions.current.set(fid, { y: pageY, height });
+            });
+          }
+        }
+      },
+      onPanResponderMove: (e, gs) => {
+        dragCurrentAbsY.current = e.nativeEvent.pageY;
+        dragY.setValue(gs.dy);
+      },
+      onPanResponderRelease: () => {
+        isScrollEnabled.current = true;
+        // Find best insertion index using absolute positions
+        const absY = dragCurrentAbsY.current;
+        let bestIdx = sortedFolders.findIndex(f => f.id === folder.id);
+        let bestDist = Infinity;
+        sortedFolders.forEach((f, idx) => {
+          const pos = folderAbsPositions.current.get(f.id);
+          if (pos) {
+            const centerY = pos.y + pos.height / 2;
+            const dist = Math.abs(centerY - absY);
+            if (dist < bestDist) { bestDist = dist; bestIdx = idx; }
+          }
+        });
+        const ids = sortedFolders.map(f => f.id);
+        const fromIdx = ids.indexOf(folder.id);
+        if (fromIdx !== -1 && bestIdx !== fromIdx) {
+          ids.splice(fromIdx, 1);
+          ids.splice(bestIdx, 0, folder.id);
+          reorderFolders(ids);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+        setDraggingFolderId(null);
+        dragY.setValue(0);
+      },
+      onPanResponderTerminate: () => {
+        isScrollEnabled.current = true;
+        setDraggingFolderId(null);
+        dragY.setValue(0);
+      },
+    });
+  };
+
+  // ── Opening drag-drop ─────────────────────────────────────────
   const buildPanResponder = (item: Opening) => {
     if (sortMode !== "manual") return null;
     return PanResponder.create({
@@ -365,11 +442,14 @@ export default function RepertoireListScreen() {
     const isExpanded = expandedFolders.has(folder.id);
     const folderOpenings = getFolderOpenings(folder.id);
     const isDropTarget = dragOverFolderId === folder.id;
+    const isFolderDragging = draggingFolderId === folder.id;
+    const folderPanHandlers = buildFolderPanResponder(folder)?.panHandlers;
 
     return (
-      <View
+      <Animated.View
         key={folder.id}
-        ref={(r) => { folderRefs.current.set(folder.id, r); }}
+        ref={(r: View | null) => { folderRefs.current.set(folder.id, r); }}
+        style={[isFolderDragging && { opacity: 0.4, transform: [{ translateY: dragY }] }]}
         onLayout={(e) => {
           itemPositions.current.set(`folder-${folder.id}`, {
             y: e.nativeEvent.layout.y,
@@ -377,42 +457,51 @@ export default function RepertoireListScreen() {
           });
         }}
       >
-        <TouchableOpacity
+        <View
           style={[
             styles.folderHeader,
             { backgroundColor: isDropTarget ? colors.primary + "22" : colors.card, borderColor: isDropTarget ? colors.primary : colors.border },
           ]}
-          onPress={() => toggleFolder(folder.id)}
-          onLongPress={() => handleLongPress({ kind: "folder", id: folder.id, name: folder.name })}
-          activeOpacity={0.8}
-          delayLongPress={400}
         >
-          <View style={styles.folderLeft}>
-            <Feather
-              name="folder"
-              size={20}
-              color={isExpanded ? colors.primary : colors.mutedForeground}
-            />
-            <Text style={[styles.folderName, { color: colors.foreground }]} numberOfLines={1}>
-              {folder.name}
-            </Text>
-            <View style={[styles.folderBadge, { backgroundColor: colors.muted }]}>
-              <Text style={[styles.folderBadgeText, { color: colors.mutedForeground }]}>
-                {folderOpenings.length}
-              </Text>
+          {sortMode === "manual" && (
+            <View style={styles.dragHandle} {...folderPanHandlers}>
+              <Feather name="menu" size={18} color={colors.mutedForeground} />
             </View>
-          </View>
-          <View style={styles.folderRight}>
-            {isDropTarget && (
-              <Text style={[styles.dropHint, { color: colors.primary }]}>Drop here</Text>
-            )}
-            <Feather
-              name={isExpanded ? "chevron-up" : "chevron-down"}
-              size={18}
-              color={colors.mutedForeground}
-            />
-          </View>
-        </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.folderTouchable}
+            onPress={() => toggleFolder(folder.id)}
+            onLongPress={() => handleLongPress({ kind: "folder", id: folder.id, name: folder.name })}
+            activeOpacity={0.8}
+            delayLongPress={400}
+          >
+            <View style={styles.folderLeft}>
+              <Feather
+                name="folder"
+                size={20}
+                color={isExpanded ? colors.primary : colors.mutedForeground}
+              />
+              <Text style={[styles.folderName, { color: colors.foreground }]} numberOfLines={1}>
+                {folder.name}
+              </Text>
+              <View style={[styles.folderBadge, { backgroundColor: colors.muted }]}>
+                <Text style={[styles.folderBadgeText, { color: colors.mutedForeground }]}>
+                  {folderOpenings.length}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.folderRight}>
+              {isDropTarget && (
+                <Text style={[styles.dropHint, { color: colors.primary }]}>Drop here</Text>
+              )}
+              <Feather
+                name={isExpanded ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={colors.mutedForeground}
+              />
+            </View>
+          </TouchableOpacity>
+        </View>
         {isExpanded && (
           <View style={[styles.folderContents, { borderColor: colors.border }]}>
             {folderOpenings.length === 0 ? (
@@ -428,7 +517,7 @@ export default function RepertoireListScreen() {
             )}
           </View>
         )}
-      </View>
+      </Animated.View>
     );
   };
 
@@ -638,6 +727,10 @@ export default function RepertoireListScreen() {
                       <Feather name="circle" size={18} color={colors.foreground} />
                       <Text style={[styles.contextLabel, { color: colors.foreground }]}>Change Color</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity style={styles.contextItem} onPress={handleEditDescription}>
+                      <Feather name="file-text" size={18} color={colors.foreground} />
+                      <Text style={[styles.contextLabel, { color: colors.foreground }]}>Edit Description</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.contextItem} onPress={handleMoveToFolder}>
                       <Feather name="folder" size={18} color={colors.foreground} />
                       <Text style={[styles.contextLabel, { color: colors.foreground }]}>Move to Folder</Text>
@@ -718,6 +811,37 @@ export default function RepertoireListScreen() {
                     <Text style={[styles.renameBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[styles.renameSaveBtn, { backgroundColor: colors.primary }]} onPress={commitColorChange}>
+                    <Text style={[styles.renameBtnText, { color: "#fff" }]}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Edit Description Modal */}
+      <Modal visible={descModal !== null} animationType="fade" transparent onRequestClose={() => setDescModal(null)}>
+        <TouchableWithoutFeedback onPress={() => setDescModal(null)}>
+          <View style={styles.contextOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.renameSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.contextTitle, { color: colors.foreground }]}>Edit Description</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background, marginTop: 8, marginBottom: 16 }]}
+                  value={descText}
+                  onChangeText={setDescText}
+                  placeholder="Notes about this opening..."
+                  placeholderTextColor={colors.mutedForeground}
+                  multiline
+                  numberOfLines={4}
+                  autoFocus
+                />
+                <View style={styles.renameButtons}>
+                  <TouchableOpacity style={[styles.renameCancelBtn, { borderColor: colors.border }]} onPress={() => setDescModal(null)}>
+                    <Text style={[styles.renameBtnText, { color: colors.mutedForeground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.renameSaveBtn, { backgroundColor: colors.primary }]} onPress={commitDescEdit}>
                     <Text style={[styles.renameBtnText, { color: "#fff" }]}>Save</Text>
                   </TouchableOpacity>
                 </View>
@@ -821,8 +945,12 @@ const styles = StyleSheet.create({
   cardDesc: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 4 },
   cardMeta: { fontSize: 12, fontFamily: "Inter_400Regular" },
   folderHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 14, paddingVertical: 12, borderRadius: 14, borderWidth: 1, marginBottom: 4,
+    flexDirection: "row", alignItems: "center",
+    borderRadius: 14, borderWidth: 1, marginBottom: 4, overflow: "hidden",
+  },
+  folderTouchable: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 14, paddingVertical: 12,
   },
   folderLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   folderName: { fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold", flex: 1 },

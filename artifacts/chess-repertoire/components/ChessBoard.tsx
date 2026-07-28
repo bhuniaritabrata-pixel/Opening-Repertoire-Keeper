@@ -254,6 +254,9 @@ export default function ChessBoard() {
   }, [legalMovesSet, board]);
 
   // ── Move + animation ──────────────────────────────────────────────────────
+  // handleSquarePress is called IMMEDIATELY so the board state updates with zero
+  // delay. The animation runs in parallel as pure visual candy — the user's
+  // brain gets instant feedback and the piece slides smoothly at the same time.
   const handlePressWithAnimation = useCallback((sq: string) => {
     if (pendingPromotion) { handleSquarePress(sq); return; }
     if (selectedSquare && legalMovesSet.has(sq) && !animPiece) {
@@ -265,22 +268,21 @@ export default function ChessBoard() {
       const dc = flipped ? 7 - fromRC.col : fromRC.col;
       const piece = board[dr][dc];
       if (piece) {
-        pendingMove.current = sq;
+        // Fire the move immediately — zero input lag
+        handleSquarePress(sq);
+        // Then run the slide animation as visual overlay
         animX.setValue(0);
         animY.setValue(0);
-        animScale.setValue(1.1);
+        animScale.setValue(1.05);
         setAnimPiece({ piece, fromSq: selectedSquare, toSq: sq, fromX, fromY, toX, toY });
         activeAnim.current = Animated.parallel([
-          Animated.timing(animX,     { toValue: toX - fromX, duration: 155, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(animY,     { toValue: toY - fromY, duration: 155, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(animScale, { toValue: 1,           duration: 155, useNativeDriver: true }),
+          Animated.timing(animX,     { toValue: toX - fromX, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          Animated.timing(animY,     { toValue: toY - fromY, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          Animated.timing(animScale, { toValue: 1,           duration: 100, useNativeDriver: true }),
         ]);
         activeAnim.current.start(() => {
           activeAnim.current = null;
-          const target = pendingMove.current;
-          pendingMove.current = null;
           setAnimPiece(null);
-          if (target) handleSquarePress(target);
         });
         return;
       }
