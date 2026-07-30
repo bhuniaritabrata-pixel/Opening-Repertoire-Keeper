@@ -21,10 +21,11 @@ interface RepertoireContextType {
   renameOpening: (id: string, name: string) => void;
   moveOpeningToFolder: (openingId: string, folderId: string | null) => void;
   reorderOpenings: (newIds: string[]) => void;
-  addFolder: (name: string) => string;
+  addFolder: (name: string, parentId?: string | null) => string;
   deleteFolder: (id: string, deleteContents: boolean) => void;
   renameFolder: (id: string, name: string) => void;
   reorderFolders: (newIds: string[]) => void;
+  moveFolderToParent: (folderId: string, parentId: string | null) => void;
   addMoveToOpening: (openingId: string, parentId: string | null, from: string, to: string, san: string, fen: string) => MoveNode | null;
   deleteMoveNode: (openingId: string, nodeId: string) => void;
   importPgn: (openingId: string, pgn: string) => boolean;
@@ -126,22 +127,33 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     saveOpenings([...reordered, ...missing]);
   }, [openings, saveOpenings]);
 
-  const addFolder = useCallback((name: string): string => {
+  const addFolder = useCallback((name: string, parentId?: string | null): string => {
     const id = generateId();
-    const maxOrder = Math.max(0, ...folders.map(f => f.order ?? 0));
-    const folder: Folder = { id, name, createdAt: Date.now(), order: maxOrder + 1 };
+    const siblings = folders.filter(f => (f.parentId ?? null) === (parentId ?? null));
+    const maxOrder = Math.max(0, ...siblings.map(f => f.order ?? 0));
+    const folder: Folder = { id, name, createdAt: Date.now(), order: maxOrder + 1, parentId: parentId ?? null };
     saveFolders([...folders, folder]);
     return id;
   }, [folders, saveFolders]);
 
   const deleteFolder = useCallback((id: string, deleteContents: boolean) => {
-    saveFolders(folders.filter(f => f.id !== id));
+    // Collect this folder and all descendant folder ids recursively
+    const collectDescendants = (fid: string): string[] => {
+      const children = folders.filter(f => f.parentId === fid).map(f => f.id);
+      return [fid, ...children.flatMap(cid => collectDescendants(cid))];
+    };
+    const toDelete = new Set(collectDescendants(id));
+    saveFolders(folders.filter(f => !toDelete.has(f.id)));
     if (deleteContents) {
-      saveOpenings(openings.filter(o => o.folderId !== id));
+      saveOpenings(openings.filter(o => !o.folderId || !toDelete.has(o.folderId)));
     } else {
-      saveOpenings(openings.map(o => o.folderId === id ? { ...o, folderId: null } : o));
+      saveOpenings(openings.map(o => o.folderId && toDelete.has(o.folderId) ? { ...o, folderId: null } : o));
     }
   }, [folders, openings, saveFolders, saveOpenings]);
+
+  const moveFolderToParent = useCallback((folderId: string, parentId: string | null) => {
+    saveFolders(folders.map(f => f.id === folderId ? { ...f, parentId } : f));
+  }, [folders, saveFolders]);
 
   const renameFolder = useCallback((id: string, name: string) => {
     saveFolders(folders.map(f => f.id === id ? { ...f, name } : f));
@@ -296,7 +308,7 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     currentOpeningId, setCurrentOpeningId,
     addOpening, deleteOpening, updateOpening, renameOpening,
     moveOpeningToFolder, reorderOpenings,
-    addFolder, deleteFolder, renameFolder, reorderFolders,
+    addFolder, deleteFolder, renameFolder, reorderFolders, moveFolderToParent,
     addMoveToOpening, deleteMoveNode, importPgn, incrementNodeDrillCount,
     isLoading,
   }), [
@@ -304,7 +316,7 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     setSortMode, setCurrentOpeningId,
     addOpening, deleteOpening, updateOpening, renameOpening,
     moveOpeningToFolder, reorderOpenings,
-    addFolder, deleteFolder, renameFolder, reorderFolders,
+    addFolder, deleteFolder, renameFolder, reorderFolders, moveFolderToParent,
     addMoveToOpening, deleteMoveNode, importPgn, incrementNodeDrillCount,
   ]);
 

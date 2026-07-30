@@ -32,10 +32,12 @@ function BoardScreen() {
   const { openings, importPgn } = useRepertoire();
   const { currentNodeId, annotateNode, currentPath, deleteCurrentMove, noteNode, currentNote } = useBoard();
 
-  const [showTheme,    setShowTheme]    = useState(false);
-  const [showPgn,      setShowPgn]      = useState(false);
-  const [editingNote,  setEditingNote]  = useState(false);
-  const [draftNote,    setDraftNote]    = useState("");
+  const [showTheme,       setShowTheme]       = useState(false);
+  const [showPgn,         setShowPgn]         = useState(false);
+  const [editingNote,     setEditingNote]     = useState(false);
+  const [draftNote,       setDraftNote]       = useState("");
+  const [showTree,        setShowTree]        = useState(true);
+  const [showAnnotation,  setShowAnnotation]  = useState(true);
 
   // Memoize the opening lookup so it doesn't scan the array on every render
   const opening = useMemo(() => openings.find(o => o.id === id) ?? null, [openings, id]);
@@ -133,68 +135,103 @@ function BoardScreen() {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 20 }]}
-        showsVerticalScrollIndicator={false}
-        removeClippedSubviews
-      >
+      {/* Board — fixed, never moves regardless of panel state */}
+      <View style={styles.boardArea}>
         <ChessBoard />
         <BoardControls />
+      </View>
 
-        <View style={[styles.movesPanel, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <MoveTree opening={opening} />
-          {currentNodeId && (
-            <View style={[styles.annotationContainer, { borderTopColor: colors.border }]}>
-              <AnnotationPicker currentAnnotation={currentAnnotation} onSelect={handleAnnotate} />
+      {/* Bottom panel — flex:1 so it fills remaining space without shifting the board */}
+      <View style={[styles.bottomPanel, { backgroundColor: colors.background }]}>
+        {/* Panel toggle bar */}
+        <View style={[styles.panelBar, { borderColor: colors.border, backgroundColor: colors.card }]}>
+          <TouchableOpacity
+            style={[styles.panelToggle, showAnnotation && currentNodeId && { backgroundColor: colors.primary + "18" }]}
+            onPress={() => setShowAnnotation(p => !p)}
+            activeOpacity={0.7}
+          >
+            <Feather name="edit-3" size={14} color={showAnnotation && currentNodeId ? colors.primary : colors.mutedForeground} />
+            <Text style={[styles.panelToggleText, { color: showAnnotation && currentNodeId ? colors.primary : colors.mutedForeground }]}>
+              Annotations
+            </Text>
+            <Feather name={showAnnotation ? "chevron-up" : "chevron-down"} size={13} color={colors.mutedForeground} />
+          </TouchableOpacity>
 
-              <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={[styles.deleteMoveBtn, { borderColor: colors.destructive }]}
-                  onPress={handleDeleteMove}
-                >
-                  <Feather name="trash-2" size={14} color={colors.destructive} />
-                  <Text style={[styles.deleteMoveText, { color: colors.destructive }]}>Delete this move</Text>
-                </TouchableOpacity>
+          <View style={[styles.panelDivider, { backgroundColor: colors.border }]} />
 
-                <TouchableOpacity
-                  style={[styles.noteBtn, { borderColor: "#1976d2", backgroundColor: editingNote ? "#1976d2" : "transparent" }]}
-                  onPress={handleNotePress}
-                >
-                  <Feather name={editingNote ? "check" : "edit-2"} size={14} color={editingNote ? "#fff" : "#1976d2"} />
-                  <Text style={[styles.noteBtnText, { color: editingNote ? "#fff" : "#1976d2" }]}>
-                    {editingNote ? "Save note" : "Add note"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {(editingNote || currentNote.length > 0) && (
-                <View style={[styles.noteBox, { borderColor: "#1976d255", backgroundColor: "#1976d20d" }]}>
-                  <Text style={[styles.noteLabel, { color: "#1976d2" }]}>note:</Text>
-                  {editingNote ? (
-                    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-                      <TextInput
-                        style={[styles.noteInput, { color: colors.foreground }]}
-                        value={draftNote}
-                        onChangeText={setDraftNote}
-                        multiline
-                        autoFocus
-                        placeholder="Write your note here…"
-                        placeholderTextColor={colors.mutedForeground}
-                        onSubmitEditing={handleNoteSave}
-                      />
-                    </KeyboardAvoidingView>
-                  ) : (
-                    <ScrollView style={styles.noteScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                      <Text style={[styles.noteText, { color: colors.foreground }]}>{currentNote}</Text>
-                    </ScrollView>
-                  )}
-                </View>
-              )}
-            </View>
-          )}
+          <TouchableOpacity
+            style={[styles.panelToggle, showTree && { backgroundColor: colors.primary + "18" }]}
+            onPress={() => setShowTree(p => !p)}
+            activeOpacity={0.7}
+          >
+            <Feather name="list" size={14} color={showTree ? colors.primary : colors.mutedForeground} />
+            <Text style={[styles.panelToggleText, { color: showTree ? colors.primary : colors.mutedForeground }]}>
+              Moves
+            </Text>
+            <Feather name={showTree ? "chevron-up" : "chevron-down"} size={13} color={colors.mutedForeground} />
+          </TouchableOpacity>
         </View>
-      </ScrollView>
+
+        {/* Annotation section — shown above move tree */}
+        {showAnnotation && currentNodeId && (
+          <View style={[styles.annotationSection, { borderColor: colors.border, backgroundColor: colors.card }]}>
+            <AnnotationPicker currentAnnotation={currentAnnotation} onSelect={handleAnnotate} />
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.deleteMoveBtn, { borderColor: colors.destructive }]}
+                onPress={handleDeleteMove}
+              >
+                <Feather name="trash-2" size={14} color={colors.destructive} />
+                <Text style={[styles.deleteMoveText, { color: colors.destructive }]}>Delete move</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.noteBtn, { borderColor: "#1976d2", backgroundColor: editingNote ? "#1976d2" : "transparent" }]}
+                onPress={handleNotePress}
+              >
+                <Feather name={editingNote ? "check" : "edit-2"} size={14} color={editingNote ? "#fff" : "#1976d2"} />
+                <Text style={[styles.noteBtnText, { color: editingNote ? "#fff" : "#1976d2" }]}>
+                  {editingNote ? "Save note" : "Add note"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {(editingNote || currentNote.length > 0) && (
+              <View style={[styles.noteBox, { borderColor: "#1976d255", backgroundColor: "#1976d20d" }]}>
+                <Text style={[styles.noteLabel, { color: "#1976d2" }]}>note:</Text>
+                {editingNote ? (
+                  <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+                    <TextInput
+                      style={[styles.noteInput, { color: colors.foreground }]}
+                      value={draftNote}
+                      onChangeText={setDraftNote}
+                      multiline
+                      autoFocus
+                      placeholder="Write your note here…"
+                      placeholderTextColor={colors.mutedForeground}
+                      onSubmitEditing={handleNoteSave}
+                    />
+                  </KeyboardAvoidingView>
+                ) : (
+                  <ScrollView style={styles.noteScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                    <Text style={[styles.noteText, { color: colors.foreground }]}>{currentNote}</Text>
+                  </ScrollView>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Move tree — scrollable, only shown when toggled on */}
+        {showTree && (
+          <ScrollView
+            style={[styles.treeScroll, { borderColor: colors.border }]}
+            contentContainerStyle={{ paddingBottom: insets.bottom + 8 }}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+          >
+            <MoveTree opening={opening} />
+          </ScrollView>
+        )}
+      </View>
 
       <BoardThemePanel visible={showTheme} onClose={() => setShowTheme(false)} />
       <PgnImport visible={showPgn} onClose={() => setShowPgn(false)} onImport={handleImportPgn} />
@@ -214,7 +251,7 @@ export default function BoardScreenWrapper() {
 }
 
 const styles = StyleSheet.create({
-  container:  { flex: 1 },
+  container:    { flex: 1 },
   header: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 16, paddingBottom: 14, gap: 10,
@@ -231,13 +268,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#f59e0b", borderRadius: 8,
   },
   drillBtnText: { color: "#0f1117", fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold" },
-  scroll:       { flex: 1 },
-  scrollContent:{ padding: 12, alignItems: "center" },
-  movesPanel: {
-    borderRadius: 12, borderWidth: 1, marginTop: 8,
-    alignSelf: "stretch", minHeight: 120, overflow: "hidden",
+  // Board is always fixed — lives outside any scroll container
+  boardArea:    { alignItems: "center", paddingHorizontal: 8, paddingTop: 8 },
+  // Bottom panel fills remaining vertical space, board never shifts
+  bottomPanel:  { flex: 1, overflow: "hidden" },
+  // Toggle bar between board and content panels
+  panelBar: {
+    flexDirection: "row", borderTopWidth: 1, borderBottomWidth: 1,
   },
-  annotationContainer: { borderTopWidth: 1, padding: 12, gap: 10 },
+  panelToggle: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 9,
+  },
+  panelToggleText: { fontSize: 12, fontWeight: "600", fontFamily: "Inter_600SemiBold" },
+  panelDivider: { width: 1 },
+  // Annotation section — sits above the move tree
+  annotationSection: {
+    borderBottomWidth: 1, padding: 12, gap: 10,
+  },
   actionRow: {
     flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap",
   },
@@ -265,4 +313,6 @@ const styles = StyleSheet.create({
   noteScroll: { maxHeight: 110 },
   noteText:   { fontSize: 13, lineHeight: 20, fontFamily: "Inter_400Regular" },
   noteInput:  { fontSize: 13, lineHeight: 20, fontFamily: "Inter_400Regular", minHeight: 60, textAlignVertical: "top" },
+  // Move tree scroll fills the rest of the bottom panel
+  treeScroll:   { flex: 1 },
 });

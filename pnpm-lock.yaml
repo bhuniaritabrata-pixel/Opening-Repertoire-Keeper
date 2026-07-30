@@ -264,9 +264,6 @@ importers:
       expo-web-browser:
         specifier: ~15.0.10
         version: 15.0.10(expo@54.0.33)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))
-      oex-engine:
-        specifier: workspace:*
-        version: link:modules/oex-engine
       react:
         specifier: 19.1.0
         version: 19.1.0
@@ -322,8 +319,6 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
-
-  artifacts/chess-repertoire/modules/oex-engine: {}
 
   artifacts/mockup-sandbox:
     devDependencies:

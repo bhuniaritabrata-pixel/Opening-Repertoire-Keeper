@@ -1,8 +1,15 @@
 {
+  "cli": {
+    "version": ">= 16.0.0"
+  },
   "build": {
     "preview": {
+      "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "NPM_CONFIG_FROZEN_LOCKFILE": "false"
       }
     }
   }

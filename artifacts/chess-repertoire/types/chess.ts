@@ -82,6 +82,8 @@ export interface Folder {
   name: string;
   createdAt: number;
   order?: number;
+  /** Parent folder id — null/undefined means root level. */
+  parentId?: string | null;
 }
 
 export type SortMode = "az" | "za" | "manual";

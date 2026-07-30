@@ -48,7 +48,7 @@ export default function RepertoireListScreen() {
     addOpening, deleteOpening, renameOpening, updateOpening,
     moveOpeningToFolder, reorderOpenings,
     addFolder, deleteFolder, renameFolder,
-    reorderFolders,
+    reorderFolders, moveFolderToParent,
     setCurrentOpeningId, isLoading,
   } = useRepertoire();
 
@@ -63,6 +63,7 @@ export default function RepertoireListScreen() {
   const [pendingColor, setPendingColor] = useState<Opening["color"]>("white");
   const [descModal, setDescModal] = useState<{ id: string; current: string } | null>(null);
   const [descText, setDescText] = useState("");
+  const [moveFolderModal, setMoveFolderModal] = useState<string | null>(null); // folder id being moved
 
   // Add form state
   const [newName, setNewName] = useState("");
@@ -100,6 +101,14 @@ export default function RepertoireListScreen() {
     if (sortMode === "za") return b.name.localeCompare(a.name);
     return (a.order ?? 0) - (b.order ?? 0);
   }), [folders, sortMode]);
+
+  // Only root-level folders in the main list
+  const rootFolders = useMemo(() => sortedFolders.filter(f => !f.parentId), [sortedFolders]);
+
+  const getSubFolders = useCallback((parentId: string) =>
+    sortedFolders.filter(f => f.parentId === parentId),
+    [sortedFolders]
+  );
 
   const sortedOpenings = useMemo(() => [...openings].sort((a, b) => {
     if (sortMode === "az") return a.name.localeCompare(b.name);
@@ -190,6 +199,12 @@ export default function RepertoireListScreen() {
     if (!colorChangeModal) return;
     updateOpening(colorChangeModal.id, { color: pendingColor });
     setColorChangeModal(null);
+  };
+
+  const handleMoveFolderToFolder = () => {
+    if (!contextMenu || contextMenu.kind !== "folder") return;
+    setMoveFolderModal(contextMenu.id);
+    setContextMenu(null);
   };
 
   const handleEditDescription = () => {
@@ -438,18 +453,20 @@ export default function RepertoireListScreen() {
     );
   };
 
-  const renderFolder = (folder: Folder) => {
+  const renderFolder = (folder: Folder, depth = 0) => {
     const isExpanded = expandedFolders.has(folder.id);
     const folderOpenings = getFolderOpenings(folder.id);
+    const subFolders = getSubFolders(folder.id);
     const isDropTarget = dragOverFolderId === folder.id;
     const isFolderDragging = draggingFolderId === folder.id;
-    const folderPanHandlers = buildFolderPanResponder(folder)?.panHandlers;
+    const folderPanHandlers = depth === 0 ? buildFolderPanResponder(folder)?.panHandlers : undefined;
+    const indent = depth * 14;
 
     return (
       <Animated.View
         key={folder.id}
         ref={(r: View | null) => { folderRefs.current.set(folder.id, r); }}
-        style={[isFolderDragging && { opacity: 0.4, transform: [{ translateY: dragY }] }]}
+        style={[{ marginLeft: indent }, isFolderDragging && { opacity: 0.4, transform: [{ translateY: dragY }] }]}
         onLayout={(e) => {
           itemPositions.current.set(`folder-${folder.id}`, {
             y: e.nativeEvent.layout.y,
@@ -463,7 +480,7 @@ export default function RepertoireListScreen() {
             { backgroundColor: isDropTarget ? colors.primary + "22" : colors.card, borderColor: isDropTarget ? colors.primary : colors.border },
           ]}
         >
-          {sortMode === "manual" && (
+          {sortMode === "manual" && depth === 0 && (
             <View style={styles.dragHandle} {...folderPanHandlers}>
               <Feather name="menu" size={18} color={colors.mutedForeground} />
             </View>
@@ -477,7 +494,7 @@ export default function RepertoireListScreen() {
           >
             <View style={styles.folderLeft}>
               <Feather
-                name="folder"
+                name={subFolders.length > 0 ? (isExpanded ? "folder-minus" : "folder-plus") : "folder"}
                 size={20}
                 color={isExpanded ? colors.primary : colors.mutedForeground}
               />
@@ -486,7 +503,7 @@ export default function RepertoireListScreen() {
               </Text>
               <View style={[styles.folderBadge, { backgroundColor: colors.muted }]}>
                 <Text style={[styles.folderBadgeText, { color: colors.mutedForeground }]}>
-                  {folderOpenings.length}
+                  {folderOpenings.length}{subFolders.length > 0 ? ` · ${subFolders.length}📁` : ""}
                 </Text>
               </View>
             </View>
@@ -504,7 +521,12 @@ export default function RepertoireListScreen() {
         </View>
         {isExpanded && (
           <View style={[styles.folderContents, { borderColor: colors.border }]}>
-            {folderOpenings.length === 0 ? (
+            {subFolders.map(sub => (
+              <View key={sub.id} style={{ marginBottom: 6 }}>
+                {renderFolder(sub, depth + 1)}
+              </View>
+            ))}
+            {folderOpenings.length === 0 && subFolders.length === 0 ? (
               <Text style={[styles.emptyFolderText, { color: colors.mutedForeground }]}>
                 Empty folder · long-press an opening to move it here
               </Text>
@@ -521,9 +543,9 @@ export default function RepertoireListScreen() {
     );
   };
 
-  // Build flat list sections
+  // Build flat list sections — only root-level folders at top
   const sections = [
-    ...sortedFolders.map(f => ({ type: "folder" as const, folder: f })),
+    ...rootFolders.map(f => ({ type: "folder" as const, folder: f })),
     ...rootOpenings.map(o => ({ type: "opening" as const, opening: o })),
   ];
 
@@ -737,6 +759,12 @@ export default function RepertoireListScreen() {
                     </TouchableOpacity>
                   </>
                 )}
+                {contextMenu?.kind === "folder" && (
+                  <TouchableOpacity style={styles.contextItem} onPress={handleMoveFolderToFolder}>
+                    <Feather name="folder" size={18} color={colors.foreground} />
+                    <Text style={[styles.contextLabel, { color: colors.foreground }]}>Move into Folder</Text>
+                  </TouchableOpacity>
+                )}
                 <View style={[styles.contextDivider, { backgroundColor: colors.border }]} />
                 <TouchableOpacity style={styles.contextItem} onPress={handleDeleteFromMenu}>
                   <Feather name="trash-2" size={18} color={colors.destructive} />
@@ -849,6 +877,49 @@ export default function RepertoireListScreen() {
             </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Move Folder into Another Folder Modal */}
+      <Modal visible={moveFolderModal !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setMoveFolderModal(null)}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setMoveFolderModal(null)}>
+              <Feather name="x" size={24} color={colors.mutedForeground} />
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Move into Folder</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
+            <TouchableOpacity
+              style={[styles.folderPickItem, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => {
+                if (moveFolderModal) moveFolderToParent(moveFolderModal, null);
+                setMoveFolderModal(null);
+              }}
+            >
+              <Feather name="home" size={18} color={colors.mutedForeground} />
+              <Text style={[styles.folderPickLabel, { color: colors.foreground }]}>Root (top level)</Text>
+            </TouchableOpacity>
+            {folders
+              .filter(f => f.id !== moveFolderModal)
+              .map(f => (
+                <TouchableOpacity
+                  key={f.id}
+                  style={[styles.folderPickItem, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  onPress={() => {
+                    if (moveFolderModal) {
+                      moveFolderToParent(moveFolderModal, f.id);
+                      setExpandedFolders(prev => new Set([...prev, f.id]));
+                    }
+                    setMoveFolderModal(null);
+                  }}
+                >
+                  <Feather name="folder" size={18} color={colors.primary} />
+                  <Text style={[styles.folderPickLabel, { color: colors.foreground }]}>{f.name}</Text>
+                </TouchableOpacity>
+              ))}
+          </ScrollView>
+        </View>
       </Modal>
 
       {/* Move to Folder Modal */}
