@@ -59,6 +59,8 @@ export interface MoveNode {
   children: MoveNode[];
   parentId: string | null;
   note?: string;
+  /** How many times this node has been chosen as an opponent reply during drilling. */
+  drillCount?: number;
 }
 
 export interface Opening {

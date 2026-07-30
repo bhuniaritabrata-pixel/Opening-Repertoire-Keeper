@@ -194,12 +194,17 @@ function LineClearedModal({
 // ── Main drill screen ────────────────────────────────────────────────────────
 export default function DrillScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { openings } = useRepertoire();
+  const { openings, incrementNodeDrillCount } = useRepertoire();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
   const opening = useMemo(() => openings.find(o => o.id === id) ?? null, [openings, id]);
-  const { snapshot, start, submitMove, retry, showHint, getLegalMoveTargets, stop } = useDrill(opening);
+
+  const handleNodeDrilled = useCallback((nodeId: string) => {
+    if (id) incrementNodeDrillCount(id, nodeId);
+  }, [id, incrementNodeDrillCount]);
+
+  const { snapshot, start, submitMove, retry, showHint, getLegalMoveTargets, stop } = useDrill(opening, handleNodeDrilled);
 
   useEffect(() => {
     if (opening) start();

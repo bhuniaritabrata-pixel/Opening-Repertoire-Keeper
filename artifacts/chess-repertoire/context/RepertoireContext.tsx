@@ -28,6 +28,7 @@ interface RepertoireContextType {
   addMoveToOpening: (openingId: string, parentId: string | null, from: string, to: string, san: string, fen: string) => MoveNode | null;
   deleteMoveNode: (openingId: string, nodeId: string) => void;
   importPgn: (openingId: string, pgn: string) => boolean;
+  incrementNodeDrillCount: (openingId: string, nodeId: string) => void;
   isLoading: boolean;
 }
 
@@ -201,6 +202,19 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     saveOpenings(openings.map(o => o.id === openingId ? { ...o, moveTree: newTree, updatedAt: Date.now() } : o));
   }, [openings, saveOpenings]);
 
+  const incrementNodeDrillCount = useCallback((openingId: string, nodeId: string) => {
+    const opening = openings.find(o => o.id === openingId);
+    if (!opening) return;
+    function updateNode(nodes: MoveNode[]): MoveNode[] {
+      return nodes.map(n => {
+        if (n.id === nodeId) return { ...n, drillCount: (n.drillCount ?? 0) + 1 };
+        return { ...n, children: updateNode(n.children) };
+      });
+    }
+    const newTree = updateNode(opening.moveTree);
+    saveOpenings(openings.map(o => o.id === openingId ? { ...o, moveTree: newTree } : o));
+  }, [openings, saveOpenings]);
+
   const importPgn = useCallback((openingId: string, pgn: string): boolean => {
     try {
       const opening = openings.find(o => o.id === openingId);
@@ -283,7 +297,7 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     addOpening, deleteOpening, updateOpening, renameOpening,
     moveOpeningToFolder, reorderOpenings,
     addFolder, deleteFolder, renameFolder, reorderFolders,
-    addMoveToOpening, deleteMoveNode, importPgn,
+    addMoveToOpening, deleteMoveNode, importPgn, incrementNodeDrillCount,
     isLoading,
   }), [
     openings, folders, sortMode, currentOpeningId, isLoading,
@@ -291,7 +305,7 @@ export function RepertoireProvider({ children }: { children: React.ReactNode }) 
     addOpening, deleteOpening, updateOpening, renameOpening,
     moveOpeningToFolder, reorderOpenings,
     addFolder, deleteFolder, renameFolder, reorderFolders,
-    addMoveToOpening, deleteMoveNode, importPgn,
+    addMoveToOpening, deleteMoveNode, importPgn, incrementNodeDrillCount,
   ]);
 
   return (

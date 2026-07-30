@@ -26,8 +26,11 @@ export interface DrillSnapshot {
   correct: number;
 }
 
-function pickRandom<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+/** Picks the MoveNode with the lowest drillCount. Ties broken randomly. */
+function pickLeastPracticed(arr: MoveNode[]): MoveNode {
+  const min = Math.min(...arr.map(n => n.drillCount ?? 0));
+  const candidates = arr.filter(n => (n.drillCount ?? 0) === min);
+  return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
 function makeInitialSnapshot(opening: Opening | null): DrillSnapshot {
@@ -62,7 +65,7 @@ function makeInitialSnapshot(opening: Opening | null): DrillSnapshot {
  * `submitMove` (called directly from a tap handler, not from inside a state
  * updater) never reasons about stale state.
  */
-export function useDrill(opening: Opening | null) {
+export function useDrill(opening: Opening | null, onNodeDrilled?: (nodeId: string) => void) {
   const [snapshot, setSnapshot] = useState<DrillSnapshot>(() => makeInitialSnapshot(opening));
 
   const snapshotRef = useRef(snapshot);
@@ -119,12 +122,13 @@ export function useDrill(opening: Opening | null) {
       wrongAttempt: null,
     }));
 
-    const chosen = pickRandom(node.children);
+    const chosen = pickLeastPracticed(node.children);
+    onNodeDrilled?.(chosen.id);
     opponentTimer.current = setTimeout(() => {
       opponentTimer.current = null;
       advance(chosen);
     }, 200);
-  }, []);
+  }, [onNodeDrilled]);
 
   const start = useCallback(() => {
     clearOpponentTimer();
@@ -151,13 +155,14 @@ export function useDrill(opening: Opening | null) {
     });
 
     if (hasMoves && rootTurn !== playerColor) {
-      const chosen = pickRandom(opening.moveTree);
+      const chosen = pickLeastPracticed(opening.moveTree);
+      onNodeDrilled?.(chosen.id);
       opponentTimer.current = setTimeout(() => {
         opponentTimer.current = null;
         advance(chosen);
       }, 200);
     }
-  }, [opening, clearOpponentTimer, advance]);
+  }, [opening, clearOpponentTimer, advance, onNodeDrilled]);
 
   const submitMove = useCallback((from: string, to: string) => {
     if (!opening || snapshotRef.current.phase !== "player_turn") return;
