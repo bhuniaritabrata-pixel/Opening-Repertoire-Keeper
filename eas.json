@@ -4,7 +4,7 @@
   },
   "build": {
     "preview": {
-      "pnpm": "10.26.1,
+      "pnpm": "10.26.1",
       "env": {
         "NPM_CONFIG_FROZEN_LOCKFILE": "false"
       },
