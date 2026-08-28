@@ -1,0 +1,1 @@
+- [EAS monorepo installs](eas-monorepo-installs.md) — EAS detects the workspace and validates the root pnpm lockfile, not a nested npm lockfile.
