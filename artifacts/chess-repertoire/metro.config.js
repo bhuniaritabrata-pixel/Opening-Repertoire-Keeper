@@ -20,6 +20,13 @@ if (isMonorepo) {
     path.resolve(projectRoot,   "node_modules"),
     path.resolve(workspaceRoot, "node_modules"),
   ];
+  // The workspace contains generated TypeScript caches with transient
+  // package paths. Metro's fallback watcher can try to watch a removed
+  // cache child and terminate the Expo workflow with ENOENT.
+  config.resolver.blockList = [
+    ...(config.resolver.blockList ?? []),
+    /[\\/]\.cache[\\/]/,
+  ];
 
   // The workspace root has react-native@0.85.2 which is incompatible with
   // @react-native/codegen@0.83.6.  Redirect every Metro resolution that
