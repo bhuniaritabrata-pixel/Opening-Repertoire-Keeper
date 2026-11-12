@@ -129,7 +129,7 @@ function Calendar({
           return (
             <div
               data-slot="calendar"
-              ref={rootRef}
+              ref={rootRef as any}
               className={cn(className)}
               {...props}
             />
@@ -185,12 +185,21 @@ function CalendarDayButton({
     if (modifiers.focused) ref.current?.focus()
   }, [modifiers.focused])
 
+  const dayKey = (() => {
+    const date = new Date(day.date)
+    const normalized = new Date(
+      date.getTime() - date.getTimezoneOffset() * 60_000
+    )
+    return normalized.toISOString().slice(0, 10)
+  })()
+
   return (
     <Button
       ref={ref}
+      type="button"
       variant="ghost"
       size="icon"
-      data-day={day.date.toLocaleDateString()}
+      data-day={dayKey}
       data-selected-single={
         modifiers.selected &&
         !modifiers.range_start &&
